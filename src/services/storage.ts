@@ -470,13 +470,33 @@ export function saveLocalRefunds(refunds: Refund[]): void {
   }
 }
 
-export function loadGoogleSheetConfig(): GoogleSheetConfig {
+export function getEffectiveGasUrl(): string | null {
+  const envUrl =
+    (import.meta as any).env?.VITE_GOOGLE_APPS_SCRIPT_URL ||
+    (import.meta as any).env?.GOOGLE_APPS_SCRIPT_URL;
+  if (typeof envUrl === 'string' && envUrl.trim().startsWith('https://script.google.com/')) {
+    return envUrl.trim();
+  }
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.SHEET_CONFIG);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (!parsed.gasDeploymentUrl && (import.meta as any).env?.VITE_GOOGLE_APPS_SCRIPT_URL) {
-        parsed.gasDeploymentUrl = (import.meta as any).env.VITE_GOOGLE_APPS_SCRIPT_URL;
+      if (typeof parsed?.gasDeploymentUrl === 'string' && parsed.gasDeploymentUrl.trim().startsWith('https://script.google.com/')) {
+        return parsed.gasDeploymentUrl.trim();
+      }
+    }
+  } catch {}
+  return null;
+}
+
+export function loadGoogleSheetConfig(): GoogleSheetConfig {
+  const envGasUrl = getEffectiveGasUrl();
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.SHEET_CONFIG);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (!parsed.gasDeploymentUrl && envGasUrl) {
+        parsed.gasDeploymentUrl = envGasUrl;
       }
       if (!parsed.syncMode) {
         parsed.syncMode = parsed.gasDeploymentUrl ? 'apps_script' : 'direct_oauth';
@@ -490,7 +510,7 @@ export function loadGoogleSheetConfig(): GoogleSheetConfig {
     spreadsheetId: null,
     spreadsheetUrl: null,
     spreadsheetName: 'Dr. Belleza - Cobranza (Dr. Jorge Apelencia)',
-    gasDeploymentUrl: (import.meta as any).env?.VITE_GOOGLE_APPS_SCRIPT_URL || null,
+    gasDeploymentUrl: envGasUrl,
     syncMode: 'apps_script',
     lastSyncTime: null,
     isSyncing: false,

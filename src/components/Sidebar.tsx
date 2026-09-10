@@ -242,13 +242,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={() => setIsMobileOpen(!isMobileOpen)}
-          className="p-2 rounded-lg bg-slate-50 text-slate-700 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
-          aria-label="Abrir menú"
-        >
-          {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </button>
+        <div className="flex items-center space-x-2">
+          {(sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl) && (
+            <button
+              onClick={onManualSync}
+              disabled={sheetConfig.isSyncing}
+              className="p-2 rounded-lg bg-slate-50 text-slate-700 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer disabled:opacity-50"
+              title="Actualizar datos con Google Sheets"
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${sheetConfig.isSyncing ? 'animate-spin text-emerald-600' : 'text-slate-600'}`}
+              />
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsMobileOpen(!isMobileOpen)}
+            className="p-2 rounded-lg bg-slate-50 text-slate-700 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
+            aria-label="Abrir menú"
+          >
+            {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile Overlay Backdrop */}
@@ -522,12 +537,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span>{isSuperAdmin ? 'Configuración Sheets' : 'Acceso Restringido'}</span>
               </button>
 
-              {isSuperAdmin && (sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl) && (
+              {(sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl) && (
                 <button
                   onClick={onManualSync}
                   disabled={sheetConfig.isSyncing}
                   className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-300 shadow-2xs transition-colors disabled:opacity-50 cursor-pointer"
-                  title="Sincronizar ahora con Google Sheets"
+                  title="Actualizar datos con Google Sheets"
                 >
                   <RefreshCw
                     className={`w-3.5 h-3.5 ${

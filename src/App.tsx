@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { UsersModule } from './components/UsersModule';
 import { SettingsModule } from './components/SettingsModule';
@@ -59,6 +59,7 @@ import {
   loadLocalCRMEvents,
   saveLocalCRMEvents,
   generatePatientCRMEvents,
+  getEffectiveGasUrl,
 } from './services/storage';
 import {
   initAuth,
@@ -497,6 +498,75 @@ export default function App() {
   };
 
   // Google Apps Script Handlers
+  const isFetchingGasRef = useRef(false);
+
+  const handleImportFromGas = async (isSilent: boolean = false, overrideUrl?: string) => {
+    const gasUrl = overrideUrl || sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    if (!gasUrl) {
+      if (!isSilent) showToast('No hay una URL de Google Apps Script configurada.');
+      return;
+    }
+    if (isFetchingGasRef.current) return;
+    isFetchingGasRef.current = true;
+
+    if (!isSilent) {
+      setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
+    }
+
+    try {
+      const data = await fetchAllFromGas(gasUrl);
+      if (data.patients && Array.isArray(data.patients) && data.patients.length > 0) {
+        setPatients(data.patients);
+      }
+      if (data.payments && Array.isArray(data.payments)) {
+        if (data.payments.length > 0 || (data.patients && data.patients.length > 0)) {
+          setPayments(data.payments);
+        }
+      }
+      if (data.refunds && Array.isArray(data.refunds)) {
+        if (data.refunds.length > 0 || (data.patients && data.patients.length > 0)) {
+          setRefunds(data.refunds);
+        }
+      }
+      if (data.users && Array.isArray(data.users) && data.users.length > 0) {
+        setUsers(data.users);
+      }
+      if (data.crmEvents && Array.isArray(data.crmEvents) && data.crmEvents.length > 0) {
+        setCrmEvents(data.crmEvents);
+      }
+      if (data.procedures && Array.isArray(data.procedures) && data.procedures.length > 0) {
+        setProcedures(data.procedures);
+      }
+      if (data.financingPlans && Array.isArray(data.financingPlans) && data.financingPlans.length > 0) {
+        setFinancingPlans(data.financingPlans);
+      }
+
+      const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      setSheetConfig((prev) => ({
+        ...prev,
+        gasDeploymentUrl: gasUrl,
+        isSyncing: false,
+        lastSyncTime: now,
+        spreadsheetName: data.spreadsheetName || prev.spreadsheetName,
+        spreadsheetUrl: data.spreadsheetUrl || prev.spreadsheetUrl,
+        spreadsheetId: data.spreadsheetId || prev.spreadsheetId,
+        error: null,
+      }));
+      if (!isSilent) {
+        showToast('¡Datos actualizados desde Google Sheets!');
+      }
+    } catch (err: any) {
+      console.warn('Sync error from Google Apps Script:', err);
+      setSheetConfig((prev) => ({ ...prev, isSyncing: false, error: err.message }));
+      if (!isSilent) {
+        showToast(`Error al sincronizar: ${err.message}`);
+        throw err;
+      }
+    } finally {
+      isFetchingGasRef.current = false;
+    }
+  };
+
   const handleConnectGas = async (gasUrl: string) => {
     setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
     try {
@@ -514,6 +584,8 @@ export default function App() {
       setSheetConfig(updatedConfig);
       saveGoogleSheetConfig(updatedConfig);
       showToast(`Conectado exitosamente con Google Apps Script (${test.spreadsheetName || 'Sheets'}).`);
+      // Immediately pull existing database from the newly connected sheet
+      handleImportFromGas(true, gasUrl.trim()).catch(console.error);
     } catch (err: any) {
       console.error(err);
       setSheetConfig((prev) => ({ ...prev, isSyncing: false, error: err.message }));
@@ -538,13 +610,14 @@ export default function App() {
   };
 
   const handleSyncAllToGas = async () => {
-    if (!sheetConfig.gasDeploymentUrl) {
-      alert('No hay una URL de Google Apps Script configurada.');
+    const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    if (!gasUrl) {
+      showToast('No hay una URL de Google Apps Script configurada.');
       return;
     }
     setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
     try {
-      await batchSyncToGas(sheetConfig.gasDeploymentUrl, {
+      await batchSyncToGas(gasUrl, {
         patients,
         payments,
         refunds,
@@ -553,7 +626,7 @@ export default function App() {
         procedures,
         financingPlans,
       });
-      const now = new Date().toLocaleTimeString('es-ES');
+      const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
       setSheetConfig((prev) => ({ ...prev, isSyncing: false, lastSyncTime: now }));
       showToast('¡Todos los datos locales fueron sincronizados a Google Sheets!');
     } catch (err: any) {
@@ -563,48 +636,47 @@ export default function App() {
     }
   };
 
-  const handleImportFromGas = async () => {
-    if (!sheetConfig.gasDeploymentUrl) {
-      alert('No hay una URL de Google Apps Script configurada.');
-      return;
-    }
-    setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
-    try {
-      const data = await fetchAllFromGas(sheetConfig.gasDeploymentUrl);
-      if (data.patients && data.patients.length > 0) setPatients(data.patients);
-      if (data.payments && data.payments.length > 0) setPayments(data.payments);
-      if (data.refunds && data.refunds.length > 0) setRefunds(data.refunds);
-      if (data.users && data.users.length > 0) setUsers(data.users);
-      if (data.crmEvents && data.crmEvents.length > 0) setCrmEvents(data.crmEvents);
-      if (data.procedures && data.procedures.length > 0) setProcedures(data.procedures);
-      if (data.financingPlans && data.financingPlans.length > 0) setFinancingPlans(data.financingPlans);
-
-      const now = new Date().toLocaleTimeString('es-ES');
-      setSheetConfig((prev) => ({
-        ...prev,
-        isSyncing: false,
-        lastSyncTime: now,
-        spreadsheetName: data.spreadsheetName || prev.spreadsheetName,
-        spreadsheetUrl: data.spreadsheetUrl || prev.spreadsheetUrl,
-        spreadsheetId: data.spreadsheetId || prev.spreadsheetId,
-      }));
-      showToast('¡Datos importados y actualizados exitosamente desde Google Sheets!');
-    } catch (err: any) {
-      console.error(err);
-      setSheetConfig((prev) => ({ ...prev, isSyncing: false, error: err.message }));
-      throw err;
-    }
-  };
-
   const handleUnifiedSync = async () => {
-    if (sheetConfig.gasDeploymentUrl) {
-      await handleSyncAllToGas();
+    const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    if (gasUrl) {
+      await handleImportFromGas(false);
     } else if (sheetConfig.spreadsheetId) {
-      await handleSyncAllToSheet();
+      await handleImportFromSheet();
     } else {
       setIsSheetSettingsModalOpen(true);
     }
   };
+
+  // Auto-sync from Google Sheets on startup, tab focus, and periodic interval (every 30s)
+  useEffect(() => {
+    const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    if (!gasUrl) return;
+
+    // 1. Initial fetch when app opens on ANY device
+    handleImportFromGas(true).catch(console.error);
+
+    // 2. Poll every 30 seconds if page is visible
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        handleImportFromGas(true).catch(console.error);
+      }
+    }, 30000);
+
+    // 3. Sync on tab focus / visibility change
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        handleImportFromGas(true).catch(console.error);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onVisibilityChange);
+    };
+  }, [sheetConfig.gasDeploymentUrl]);
 
   // Domain Actions
   const handleSavePatient = async (
