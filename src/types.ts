@@ -1,8 +1,33 @@
+export type PaymentFrequency = 'Semanal' | 'Quincenal' | 'Mensual';
+
+export interface FinancingPlan {
+  id: string;
+  name: string; // Ej: "Plan 6 Meses - Mensual", "Plan 12 Meses - Quincenal", etc.
+  months: number; // 3, 6, 12, 18, 24, etc.
+  frequency: PaymentFrequency; // 'Semanal' | 'Quincenal' | 'Mensual'
+  installmentsCount: number; // Cantidad total de cuotas calculadas
+  interestRatePercent: number; // Tasa de recargo/interés (ej: 0% sin interés, o 8%)
+  downPaymentPercent: number; // Anticipo / Seña mínima sugerida (ej: 20%)
+  isActive: boolean;
+  description?: string;
+}
+
+export interface ScheduledPayment {
+  installmentNumber: number;
+  dueDate: string; // YYYY-MM-DD
+  amount: number;
+  status?: 'pending' | 'paid';
+  notes?: string;
+}
+
 export interface Patient {
   id: string;
   fullName: string;
   phone: string; // WhatsApp number
   idNumber: string; // DNI / Cédula / RUT
+  email?: string; // Correo electrónico de contacto
+  city?: string; // Ciudad de residencia de la paciente
+  campaign?: string; // Campaña de marketing / origen (ej. Instagram Ads, Google Ads, TikTok, Referido)
   procedure: string; // Procedimiento estético / Tratamiento
   doctor: string; // default: Dr. Jorge Apelencia
   totalCost: number; // Monto total acordado
@@ -12,6 +37,15 @@ export interface Patient {
   status: 'pending' | 'paid' | 'overdue'; // pendiente, al día/pagado, vencido
   notes?: string;
   nextPaymentDate?: string; // Próxima fecha estimada de pago
+
+  // Plan de Financiamiento Acordado
+  financingPlanId?: string;
+  financingPlanName?: string;
+  financingMonths?: number;
+  financingFrequency?: PaymentFrequency;
+  financingInstallmentsCount?: number;
+  financingInstallmentAmount?: number;
+  paymentSchedule?: ScheduledPayment[];
 }
 
 export interface Payment {
@@ -45,6 +79,8 @@ export interface GoogleSheetConfig {
   spreadsheetId: string | null;
   spreadsheetUrl: string | null;
   spreadsheetName: string;
+  gasDeploymentUrl?: string | null;
+  syncMode?: 'apps_script' | 'direct_oauth';
   lastSyncTime: string | null;
   isSyncing: boolean;
   error: string | null;
@@ -56,15 +92,53 @@ export interface SystemUser {
   id: string;
   fullName: string;
   email: string;
+  password?: string;
   role: UserRole;
   phone?: string;
+  avatarUrl?: string;
   isActive: boolean;
+  isImmutable?: boolean; // Protegido contra eliminación permanente
   createdAt: string;
   lastLogin?: string;
   notes?: string;
 }
 
-export type ActiveTab = 'dashboard' | 'patients' | 'payments' | 'refunds' | 'users' | 'settings';
+export type ActiveTab = 'dashboard' | 'crm' | 'patients' | 'payments' | 'refunds' | 'users' | 'settings';
+
+export type CRMEventType =
+  | 'bienvenida'
+  | 'notificacion_cobro'
+  | 'vencimiento_cuota'
+  | 'seguimiento_medico'
+  | 'confirmacion_abono'
+  | 'otro';
+
+export type CRMEventStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+export type CRMPriority = 'alta' | 'media' | 'baja';
+export type CRMChannel = 'whatsapp' | 'llamada' | 'email' | 'presencial';
+
+export interface CRMEvent {
+  id: string;
+  patientId: string;
+  patientName: string;
+  patientPhone: string;
+  type: CRMEventType;
+  title: string;
+  description: string;
+  dueDate: string; // YYYY-MM-DD
+  dueTime?: string; // HH:mm
+  status: CRMEventStatus;
+  priority: CRMPriority;
+  amount?: number;
+  installmentNumber?: number;
+  totalInstallments?: number;
+  procedure?: string;
+  createdAt: string; // ISO String
+  completedAt?: string;
+  assignedTo?: string;
+  channel?: CRMChannel;
+  notes?: string;
+}
 
 export interface SurgicalProcedure {
   id: string;

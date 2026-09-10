@@ -1,6 +1,6 @@
 {
   "name": "Dr. Belleza - Cobranza",
-  "description": "Gestión de cobranza, pagos de pacientes, reintegros, notificaciones vía WhatsApp y sincronización con Google Sheets para el Dr. Jorge Apelencia.",
+  "description": "Gestión de cobranza, módulo CRM automatizado (Tabla, Kanban y Calendario), pagos de pacientes, reintegros, notificaciones vía WhatsApp y sincronización con Google Sheets para el Dr. Jorge Apelencia.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

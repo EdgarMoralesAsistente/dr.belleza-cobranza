@@ -13,6 +13,11 @@ import { WhatsAppModal } from './components/WhatsAppModal';
 import { MonthlyReportModal } from './components/MonthlyReportModal';
 import { PatientDetailModal } from './components/PatientDetailModal';
 import { GoogleSheetsSettingsModal } from './components/GoogleSheetsSettingsModal';
+import { CRMModule } from './components/crm/CRMModule';
+import { EditPatientModal } from './components/EditPatientModal';
+import { UserProfileHeader } from './components/UserProfileHeader';
+import { UserProfileModal } from './components/UserProfileModal';
+import { LoginModal } from './components/LoginModal';
 import {
   Patient,
   Payment,
@@ -24,6 +29,8 @@ import {
   DiscountCoupon,
   AppBrandingConfig,
   RolePrivilege,
+  FinancingPlan,
+  CRMEvent,
 } from './types';
 import { WhatsAppTemplateType } from './services/whatsapp';
 import {
@@ -47,6 +54,11 @@ import {
   saveLocalBranding,
   loadLocalRolePrivileges,
   saveLocalRolePrivileges,
+  loadLocalFinancingPlans,
+  saveLocalFinancingPlans,
+  loadLocalCRMEvents,
+  saveLocalCRMEvents,
+  generatePatientCRMEvents,
 } from './services/storage';
 import {
   initAuth,
@@ -63,6 +75,15 @@ import {
   appendPaymentToGoogleSheet,
   appendRefundToGoogleSheet,
 } from './services/googleSheets';
+import {
+  testGasConnection,
+  fetchAllFromGas,
+  savePatientToGas,
+  deletePatientFromGas,
+  savePaymentToGas,
+  saveRefundToGas,
+  batchSyncToGas,
+} from './services/gasService';
 import { User } from 'firebase/auth';
 import { FileSpreadsheet, Sparkles, CheckCircle2, ShieldAlert, Lock, ArrowRightLeft } from 'lucide-react';
 
@@ -76,6 +97,14 @@ export default function App() {
   // Users & RBAC States
   const [users, setUsers] = useState<SystemUser[]>(loadLocalUsers);
   const [activeUserId, setActiveUserId] = useState<string>(loadActiveUserId);
+
+  // Catalog, Coupons, Branding, Role Privileges & Financing Plans States
+  const [procedures, setProcedures] = useState<SurgicalProcedure[]>(loadLocalProcedures);
+  const [coupons, setCoupons] = useState<DiscountCoupon[]>(loadLocalCoupons);
+  const [branding, setBranding] = useState<AppBrandingConfig>(loadLocalBranding);
+  const [rolePrivileges, setRolePrivileges] = useState<RolePrivilege[]>(loadLocalRolePrivileges);
+  const [financingPlans, setFinancingPlans] = useState<FinancingPlan[]>(loadLocalFinancingPlans);
+  const [crmEvents, setCrmEvents] = useState<CRMEvent[]>(loadLocalCRMEvents);
 
   // Navigation & User State
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -99,6 +128,14 @@ export default function App() {
   const [isMonthlyReportModalOpen, setIsMonthlyReportModalOpen] = useState(false);
   const [isSheetSettingsModalOpen, setIsSheetSettingsModalOpen] = useState(false);
   const [selectedPatientForDetails, setSelectedPatientForDetails] = useState<Patient | null>(null);
+
+  // Edit Patient Modal
+  const [patientToEdit, setPatientToEdit] = useState<Patient | null>(null);
+  const [isEditPatientModalOpen, setIsEditPatientModalOpen] = useState(false);
+
+  // User Profile & Authentication Modals
+  const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
   // Temporary sync toast message
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -151,16 +188,67 @@ export default function App() {
     saveActiveUserId(activeUserId);
   }, [activeUserId]);
 
+  useEffect(() => {
+    saveLocalProcedures(procedures);
+  }, [procedures]);
+
+  useEffect(() => {
+    saveLocalCoupons(coupons);
+  }, [coupons]);
+
+  useEffect(() => {
+    saveLocalBranding(branding);
+  }, [branding]);
+
+  useEffect(() => {
+  saveLocalRolePrivileges(rolePrivileges);
+  }, [rolePrivileges]);
+
+  useEffect(() => {
+    saveLocalFinancingPlans(financingPlans);
+  }, [financingPlans]);
+
+  useEffect(() => {
+    saveLocalCRMEvents(crmEvents);
+  }, [crmEvents]);
+
   // Current active user & RBAC determination
   const activeUser = users.find((u) => u.id === activeUserId) || users[0] || {
-    id: 'USR-101',
-    fullName: 'Dr. Jorge Apelencia',
-    email: 'jorge.apelencia@drbelleza.com',
+    id: 'USR-SUPER-EDGAR',
+    fullName: 'Edgar Morales',
+    email: 'edgar@morales.com',
     role: 'super_admin' as const,
     isActive: true,
     createdAt: '2026-01-15',
+    isImmutable: true,
   };
   const isSuperAdmin = activeUser.role === 'super_admin';
+  const currentPrivilege = rolePrivileges.find((p) => p.role === activeUser.role);
+
+  const isTabAllowed = (tab: ActiveTab): boolean => {
+    if (!currentPrivilege) return true;
+    switch (tab) {
+      case 'dashboard':
+        return currentPrivilege.canViewDashboard;
+      case 'crm':
+      case 'patients':
+        return currentPrivilege.canManagePatients;
+      case 'payments':
+        return currentPrivilege.canRegisterPayments || currentPrivilege.canViewDashboard;
+      case 'refunds':
+        return currentPrivilege.canRegisterRefunds;
+      case 'users':
+        return currentPrivilege.canManageUsers;
+      case 'settings':
+        return currentPrivilege.canManageSettings;
+      default:
+        return true;
+    }
+  };
+
+  const crmPendingCount = crmEvents.filter(
+    (e) => e.status !== 'completed' && e.status !== 'cancelled'
+  ).length;
 
   const handleSaveUser = (userData: Omit<SystemUser, 'id' | 'createdAt'>, id?: string) => {
     if (id) {
@@ -181,6 +269,11 @@ export default function App() {
 
   const handleDeleteUser = (id: string) => {
     const userToDelete = users.find((u) => u.id === id);
+    if (userToDelete?.isImmutable || userToDelete?.email.toLowerCase() === 'edgar@morales.com' || id === 'USR-SUPER-EDGAR') {
+      showToast('Acción denegada: El Super Administrador Edgar Morales está protegido permanentemente y no puede ser borrado.');
+      return;
+    }
+
     setUsers((prev) => prev.filter((u) => u.id !== id));
     if (activeUserId === id) {
       const remaining = users.filter((u) => u.id !== id);
@@ -192,6 +285,12 @@ export default function App() {
   };
 
   const handleToggleUserStatus = (id: string) => {
+    const user = users.find((u) => u.id === id);
+    if (user?.isImmutable || user?.email.toLowerCase() === 'edgar@morales.com' || id === 'USR-SUPER-EDGAR') {
+      showToast('El Super Administrador Edgar Morales debe permanecer siempre activo.');
+      return;
+    }
+
     setUsers((prev) =>
       prev.map((u) => {
         if (u.id === id) {
@@ -206,10 +305,47 @@ export default function App() {
 
   const handleSelectActiveUser = (userId: string) => {
     setActiveUserId(userId);
+    saveActiveUserId(userId);
     const u = users.find((item) => item.id === userId);
     if (u) {
       showToast(`Sesión activa cambiada a: ${u.fullName} (${u.role})`);
     }
+  };
+
+  const handleUpdateCurrentUser = (updatedUser: SystemUser) => {
+    setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
+    showToast(`Perfil de ${updatedUser.fullName} actualizado.`);
+  };
+
+  const handleLoginSuccess = (user: SystemUser) => {
+    setActiveUserId(user.id);
+    saveActiveUserId(user.id);
+    setIsLoginModalOpen(false);
+
+    // Redirect to allowed view if current tab is restricted
+    const priv = rolePrivileges.find((p) => p.role === user.role);
+    if (priv) {
+      const allowedForTab = (tab: ActiveTab): boolean => {
+        if (tab === 'dashboard') return priv.canViewDashboard;
+        if (tab === 'crm' || tab === 'patients') return priv.canManagePatients;
+        if (tab === 'payments') return priv.canRegisterPayments || priv.canViewDashboard;
+        if (tab === 'refunds') return priv.canRegisterRefunds;
+        if (tab === 'users') return priv.canManageUsers;
+        if (tab === 'settings') return priv.canManageSettings;
+        return true;
+      };
+
+      if (!allowedForTab(activeTab)) {
+        if (priv.canViewDashboard) setActiveTab('dashboard');
+        else if (priv.canManagePatients) setActiveTab('patients');
+        else if (priv.canRegisterPayments) setActiveTab('payments');
+        else if (priv.canRegisterRefunds) setActiveTab('refunds');
+        else if (priv.canManageUsers) setActiveTab('users');
+        else if (priv.canManageSettings) setActiveTab('settings');
+      }
+    }
+
+    showToast(`¡Bienvenido de vuelta, ${user.fullName}! Sesión iniciada con éxito.`);
   };
 
   const handleDenyNonSuperAdminSheetAccess = () => {
@@ -360,6 +496,116 @@ export default function App() {
     }
   };
 
+  // Google Apps Script Handlers
+  const handleConnectGas = async (gasUrl: string) => {
+    setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
+    try {
+      const test = await testGasConnection(gasUrl);
+      const updatedConfig: GoogleSheetConfig = {
+        spreadsheetId: test.spreadsheetId || 'gas-connected',
+        spreadsheetUrl: test.spreadsheetUrl || 'https://script.google.com/',
+        spreadsheetName: test.spreadsheetName || 'Dr. Belleza - Google Sheets (Apps Script)',
+        gasDeploymentUrl: gasUrl.trim(),
+        syncMode: 'apps_script',
+        lastSyncTime: new Date().toLocaleTimeString('es-ES'),
+        isSyncing: false,
+        error: null,
+      };
+      setSheetConfig(updatedConfig);
+      saveGoogleSheetConfig(updatedConfig);
+      showToast(`Conectado exitosamente con Google Apps Script (${test.spreadsheetName || 'Sheets'}).`);
+    } catch (err: any) {
+      console.error(err);
+      setSheetConfig((prev) => ({ ...prev, isSyncing: false, error: err.message }));
+      throw err;
+    }
+  };
+
+  const handleDisconnectGas = () => {
+    const cleared: GoogleSheetConfig = {
+      spreadsheetId: null,
+      spreadsheetUrl: null,
+      spreadsheetName: 'Dr. Belleza - Cobranza (Desconectado)',
+      gasDeploymentUrl: null,
+      syncMode: 'apps_script',
+      lastSyncTime: null,
+      isSyncing: false,
+      error: null,
+    };
+    setSheetConfig(cleared);
+    saveGoogleSheetConfig(cleared);
+    showToast('Vinculación con Google Apps Script removida.');
+  };
+
+  const handleSyncAllToGas = async () => {
+    if (!sheetConfig.gasDeploymentUrl) {
+      alert('No hay una URL de Google Apps Script configurada.');
+      return;
+    }
+    setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
+    try {
+      await batchSyncToGas(sheetConfig.gasDeploymentUrl, {
+        patients,
+        payments,
+        refunds,
+        users,
+        crmEvents,
+        procedures,
+        financingPlans,
+      });
+      const now = new Date().toLocaleTimeString('es-ES');
+      setSheetConfig((prev) => ({ ...prev, isSyncing: false, lastSyncTime: now }));
+      showToast('¡Todos los datos locales fueron sincronizados a Google Sheets!');
+    } catch (err: any) {
+      console.error(err);
+      setSheetConfig((prev) => ({ ...prev, isSyncing: false, error: err.message }));
+      throw err;
+    }
+  };
+
+  const handleImportFromGas = async () => {
+    if (!sheetConfig.gasDeploymentUrl) {
+      alert('No hay una URL de Google Apps Script configurada.');
+      return;
+    }
+    setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
+    try {
+      const data = await fetchAllFromGas(sheetConfig.gasDeploymentUrl);
+      if (data.patients && data.patients.length > 0) setPatients(data.patients);
+      if (data.payments && data.payments.length > 0) setPayments(data.payments);
+      if (data.refunds && data.refunds.length > 0) setRefunds(data.refunds);
+      if (data.users && data.users.length > 0) setUsers(data.users);
+      if (data.crmEvents && data.crmEvents.length > 0) setCrmEvents(data.crmEvents);
+      if (data.procedures && data.procedures.length > 0) setProcedures(data.procedures);
+      if (data.financingPlans && data.financingPlans.length > 0) setFinancingPlans(data.financingPlans);
+
+      const now = new Date().toLocaleTimeString('es-ES');
+      setSheetConfig((prev) => ({
+        ...prev,
+        isSyncing: false,
+        lastSyncTime: now,
+        spreadsheetName: data.spreadsheetName || prev.spreadsheetName,
+        spreadsheetUrl: data.spreadsheetUrl || prev.spreadsheetUrl,
+        spreadsheetId: data.spreadsheetId || prev.spreadsheetId,
+      }));
+      showToast('¡Datos importados y actualizados exitosamente desde Google Sheets!');
+    } catch (err: any) {
+      console.error(err);
+      setSheetConfig((prev) => ({ ...prev, isSyncing: false, error: err.message }));
+      throw err;
+    }
+  };
+
+  const handleUnifiedSync = async () => {
+    if (sheetConfig.gasDeploymentUrl) {
+      await handleSyncAllToGas();
+    } else if (sheetConfig.spreadsheetId) {
+      await handleSyncAllToSheet();
+    } else {
+      setIsSheetSettingsModalOpen(true);
+    }
+  };
+
   // Domain Actions
   const handleSavePatient = async (
     newPatient: Patient,
@@ -388,18 +634,103 @@ export default function App() {
       if (token && sheetConfig.spreadsheetId) {
         appendPaymentToGoogleSheet(token, sheetConfig.spreadsheetId, paymentRecord).catch(console.error);
       }
+      if (sheetConfig.gasDeploymentUrl) {
+        savePaymentToGas(sheetConfig.gasDeploymentUrl, paymentRecord).catch(console.error);
+      }
     }
 
     const updatedPatients = [newPatient, ...patients];
     setPatients(updatedPatients);
-    showToast(`Paciente ${newPatient.fullName} registrada exitosamente.`);
 
-    // Async sync to Google Sheets if connected
+    // Automate CRM events creation
+    const newCRMEvents = generatePatientCRMEvents(newPatient, initialPayment?.amount);
+    if (newCRMEvents.length > 0) {
+      setCrmEvents((prev) => [...newCRMEvents, ...prev]);
+    }
+
+    showToast(`Paciente ${newPatient.fullName} registrada y ${newCRMEvents.length} eventos creados en CRM.`);
+
+    // Async sync to Google Sheets if connected (Direct OAuth or Google Apps Script)
     const token = await getAccessToken();
     if (token && sheetConfig.spreadsheetId) {
       appendPatientToGoogleSheet(token, sheetConfig.spreadsheetId, newPatient)
         .then(() => {
           setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+        })
+        .catch(console.error);
+    }
+    if (sheetConfig.gasDeploymentUrl) {
+      savePatientToGas(sheetConfig.gasDeploymentUrl, newPatient)
+        .then(() => {
+          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleOpenEditPatient = (patient: Patient) => {
+    setPatientToEdit(patient);
+    setIsEditPatientModalOpen(true);
+  };
+
+  const handleUpdatePatient = (updatedPatient: Patient) => {
+    setPatients((prev) =>
+      prev.map((p) => (p.id === updatedPatient.id ? updatedPatient : p))
+    );
+
+    // Sync corresponding CRM events
+    setCrmEvents((prev) =>
+      prev.map((ev) => {
+        if (ev.patientId === updatedPatient.id) {
+          return {
+            ...ev,
+            patientName: updatedPatient.fullName,
+            patientPhone: updatedPatient.phone,
+            procedure: updatedPatient.procedure,
+          };
+        }
+        return ev;
+      })
+    );
+
+    if (selectedPatientForDetails?.id === updatedPatient.id) {
+      setSelectedPatientForDetails(updatedPatient);
+    }
+
+    // Async sync updated patient to Google Apps Script if connected
+    if (sheetConfig.gasDeploymentUrl) {
+      savePatientToGas(sheetConfig.gasDeploymentUrl, updatedPatient)
+        .then(() => {
+          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+        })
+        .catch(console.error);
+    }
+
+    showToast(`Registro de "${updatedPatient.fullName}" actualizado correctamente.`);
+  };
+
+  const handleDeletePatient = (patientId: string) => {
+    const patientToDelete = patients.find((p) => p.id === patientId);
+    const name = patientToDelete?.fullName || 'la paciente';
+
+    // Borrado en cascada local (paciente + abonos + reintegros + eventos)
+    setPatients((prev) => prev.filter((p) => p.id !== patientId));
+    setPayments((prev) => prev.filter((pay) => pay.patientId !== patientId));
+    setRefunds((prev) => prev.filter((ref) => ref.patientId !== patientId));
+    setCrmEvents((prev) => prev.filter((ev) => ev.patientId !== patientId));
+
+    if (selectedPatientForDetails?.id === patientId) {
+      setSelectedPatientForDetails(null);
+    }
+
+    showToast(`Paciente "${name}" y todos sus abonos y registros asociados eliminados.`);
+
+    // Borrado en cascada en Google Sheets vía Google Apps Script
+    if (sheetConfig.gasDeploymentUrl) {
+      deletePatientFromGas(sheetConfig.gasDeploymentUrl, patientId)
+        .then((res) => {
+          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+          console.log(`Borrado en cascada en Google Sheets. Abonos: ${res.deletedPayments}, Reintegros: ${res.deletedRefunds}`);
         })
         .catch(console.error);
     }
@@ -432,12 +763,41 @@ export default function App() {
 
     setPatients(updatedPatients);
     setPayments([paymentRecord, ...payments]);
+
+    // Auto-update CRM events upon payment
+    setCrmEvents((prev) => {
+      let markedOne = false;
+      return prev.map((ev) => {
+        if (
+          ev.patientId === paymentRecord.patientId &&
+          (ev.type === 'vencimiento_cuota' || ev.type === 'notificacion_cobro') &&
+          ev.status !== 'completed' &&
+          !markedOne
+        ) {
+          markedOne = true;
+          return {
+            ...ev,
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+          };
+        }
+        return ev;
+      });
+    });
+
     showToast(`Abono de $${paymentRecord.amount.toLocaleString()} registrado para ${paymentRecord.patientName}.`);
 
     // Async sync to Google Sheets
     const token = await getAccessToken();
     if (token && sheetConfig.spreadsheetId) {
       appendPaymentToGoogleSheet(token, sheetConfig.spreadsheetId, paymentRecord)
+        .then(() => {
+          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+        })
+        .catch(console.error);
+    }
+    if (sheetConfig.gasDeploymentUrl) {
+      savePaymentToGas(sheetConfig.gasDeploymentUrl, paymentRecord)
         .then(() => {
           setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
         })
@@ -474,6 +834,13 @@ export default function App() {
     const token = await getAccessToken();
     if (token && sheetConfig.spreadsheetId) {
       appendRefundToGoogleSheet(token, sheetConfig.spreadsheetId, refundRecord)
+        .then(() => {
+          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+        })
+        .catch(console.error);
+    }
+    if (sheetConfig.gasDeploymentUrl) {
+      saveRefundToGas(sheetConfig.gasDeploymentUrl, refundRecord)
         .then(() => {
           setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
         })
@@ -545,22 +912,27 @@ export default function App() {
         sheetConfig={sheetConfig}
         users={users}
         activeUserId={activeUserId}
-        onSelectActiveUser={handleSelectActiveUser}
+        rolePrivileges={rolePrivileges}
         onOpenNewPayment={() => handleOpenNewPaymentWithPatient()}
         onOpenNewPatient={() => setIsNewPatientModalOpen(true)}
         onOpenNewRefund={() => handleOpenNewRefundWithPatient()}
         onOpenMonthlyReport={() => setIsMonthlyReportModalOpen(true)}
         onOpenSheetSettings={() => setIsSheetSettingsModalOpen(true)}
-        onManualSync={handleSyncAllToSheet}
+        onManualSync={handleUnifiedSync}
         onSignInGoogle={handleSignInGoogle}
         onSignOutGoogle={handleSignOutGoogle}
         onDenyNonSuperAdminSheetAccess={handleDenyNonSuperAdminSheetAccess}
+        onOpenProfileModal={() => setIsUserProfileModalOpen(true)}
+        onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onLogout={() => setIsLoginModalOpen(true)}
+        branding={branding}
+        crmPendingCount={crmPendingCount}
       />
 
       {/* Main Content Workspace */}
       <div className="flex-1 min-w-0 md:ml-72 flex flex-col min-h-screen">
         {/* Top Header / Breadcrumb Bar */}
-        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between">
+        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
           <div>
             <div className="text-[11px] text-slate-400 font-medium flex items-center space-x-1.5">
               <span>Dr. Belleza - Cobranza</span>
@@ -577,34 +949,25 @@ export default function App() {
             </div>
             <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
               {activeTab === 'dashboard' && 'Dashboard de Cobranza & Métricas'}
+              {activeTab === 'crm' && 'CRM - Gestión de Eventos & Cobranzas'}
               {activeTab === 'patients' && 'Pacientes & Planes Quirúrgicos'}
               {activeTab === 'payments' && 'Historial de Abonos & Facturación'}
               {activeTab === 'refunds' && 'Gestión de Reintegros'}
               {activeTab === 'users' && 'Gestión de Usuarios & Control de Accesos'}
+              {activeTab === 'settings' && 'Configuración del Sistema & Catálogo'}
             </h1>
           </div>
 
           <div className="flex items-center space-x-2 sm:space-x-3">
-            {/* Active User session pill */}
-            <div className="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
-              <span className="text-[11px] text-slate-400 hidden sm:inline">Sesión:</span>
-              <span className="font-bold text-slate-800 text-xs truncate max-w-[120px] sm:max-w-none">
-                {activeUser.fullName}
-              </span>
-              <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200 uppercase">
-                {activeUser.role}
-              </span>
-            </div>
-
             {/* Quick Google Sheets status button */}
             <button
               onClick={() => {
                 if (isSuperAdmin) setIsSheetSettingsModalOpen(true);
                 else handleDenyNonSuperAdminSheetAccess();
               }}
-              className={`hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+              className={`hidden md:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
                 isSuperAdmin
-                  ? sheetConfig.spreadsheetId
+                  ? (sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl)
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                     : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
                   : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
@@ -616,68 +979,134 @@ export default function App() {
               }
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>
-                {sheetConfig.spreadsheetId ? 'Sheets Conectado' : 'Google Sheets'}
+              <span className="hidden lg:inline">
+                {(sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl) ? 'Sheets Conectado' : 'Google Sheets'}
               </span>
               {!isSuperAdmin && <Lock className="w-3 h-3 text-purple-600 ml-0.5" />}
             </button>
+
+            {/* Top Right User Profile Header & Session Management */}
+            <UserProfileHeader
+              currentUser={activeUser}
+              activeUser={activeUser}
+              users={users}
+              onOpenProfile={() => setIsUserProfileModalOpen(true)}
+              onOpenProfileModal={() => setIsUserProfileModalOpen(true)}
+              onOpenLogin={() => setIsLoginModalOpen(true)}
+              onOpenLoginModal={() => setIsLoginModalOpen(true)}
+              onLogout={() => setIsLoginModalOpen(true)}
+            />
           </div>
         </header>
 
         {/* Main Content Body */}
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-          {/* Active Tab Views */}
-          {activeTab === 'dashboard' && (
-            <DashboardStats
-              patients={patients}
-              payments={payments}
-              refunds={refunds}
-              onOpenWhatsApp={handleOpenWhatsAppReminder}
-              onOpenNewPayment={handleOpenNewPaymentWithPatient}
-              onViewPatientsTab={() => setActiveTab('patients')}
-              onViewPaymentsTab={() => setActiveTab('payments')}
-            />
-          )}
+          {!isTabAllowed(activeTab) ? (
+            <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center max-w-lg mx-auto shadow-sm my-12">
+              <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto mb-4">
+                <Lock className="w-7 h-7" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 mb-2">Acceso No Autorizado</h2>
+              <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+                Su perfil de usuario actual (<strong>{activeUser.fullName}</strong> — <span className="font-semibold capitalize">{activeUser.role}</span>) no cuenta con privilegios configurados para acceder a esta sección.
+              </p>
+              <button
+                onClick={() => {
+                  if (currentPrivilege?.canViewDashboard) setActiveTab('dashboard');
+                  else if (currentPrivilege?.canManagePatients) setActiveTab('patients');
+                  else if (currentPrivilege?.canRegisterPayments) setActiveTab('payments');
+                  else if (currentPrivilege?.canRegisterRefunds) setActiveTab('refunds');
+                  else setActiveTab('dashboard');
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Volver a su pantalla autorizada
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Active Tab Views */}
+              {activeTab === 'dashboard' && (
+                <DashboardStats
+                  patients={patients}
+                  payments={payments}
+                  refunds={refunds}
+                  onOpenWhatsApp={handleOpenWhatsAppReminder}
+                  onOpenNewPayment={handleOpenNewPaymentWithPatient}
+                  onViewPatientsTab={() => setActiveTab('patients')}
+                  onViewPaymentsTab={() => setActiveTab('payments')}
+                />
+              )}
 
-          {activeTab === 'patients' && (
-            <PatientTable
-              patients={patients}
-              payments={payments}
-              refunds={refunds}
-              onOpenWhatsApp={handleOpenWhatsAppReminder}
-              onOpenNewPayment={handleOpenNewPaymentWithPatient}
-              onOpenNewRefund={handleOpenNewRefundWithPatient}
-              onSelectPatientDetails={(p) => setSelectedPatientForDetails(p)}
-            />
-          )}
+              {activeTab === 'crm' && (
+                <CRMModule
+                  events={crmEvents}
+                  patients={patients}
+                  users={users}
+                  onSaveEvents={(updated) => setCrmEvents(updated)}
+                  onOpenWhatsAppModal={(patient) => handleOpenWhatsAppReminder(patient)}
+                />
+              )}
 
-          {activeTab === 'payments' && (
-            <PaymentsTable
-              payments={payments}
-              patients={patients}
-              onOpenWhatsAppReceipt={handleOpenWhatsAppReceipt}
-              onOpenNewPayment={() => handleOpenNewPaymentWithPatient()}
-            />
-          )}
+              {activeTab === 'patients' && (
+                <PatientTable
+                  patients={patients}
+                  payments={payments}
+                  refunds={refunds}
+                  onOpenWhatsApp={handleOpenWhatsAppReminder}
+                  onOpenNewPayment={handleOpenNewPaymentWithPatient}
+                  onOpenNewRefund={handleOpenNewRefundWithPatient}
+                  onSelectPatientDetails={(p) => setSelectedPatientForDetails(p)}
+                  onEditPatient={handleOpenEditPatient}
+                  onDeletePatient={handleDeletePatient}
+                />
+              )}
 
-          {activeTab === 'refunds' && (
-            <RefundsTable
-              refunds={refunds}
-              patients={patients}
-              onOpenWhatsAppRefund={handleOpenWhatsAppRefund}
-              onOpenNewRefund={() => handleOpenNewRefundWithPatient()}
-            />
-          )}
+              {activeTab === 'payments' && (
+                <PaymentsTable
+                  payments={payments}
+                  patients={patients}
+                  onOpenWhatsAppReceipt={handleOpenWhatsAppReceipt}
+                  onOpenNewPayment={() => handleOpenNewPaymentWithPatient()}
+                />
+              )}
 
-          {activeTab === 'users' && (
-            <UsersModule
-              users={users}
-              activeUserId={activeUserId}
-              onSelectActiveUser={handleSelectActiveUser}
-              onSaveUser={handleSaveUser}
-              onDeleteUser={handleDeleteUser}
-              onToggleUserStatus={handleToggleUserStatus}
-            />
+              {activeTab === 'refunds' && (
+                <RefundsTable
+                  refunds={refunds}
+                  patients={patients}
+                  onOpenWhatsAppRefund={handleOpenWhatsAppRefund}
+                  onOpenNewRefund={() => handleOpenNewRefundWithPatient()}
+                />
+              )}
+
+              {activeTab === 'users' && (
+                <UsersModule
+                  users={users}
+                  activeUserId={activeUserId}
+                  onSaveUser={handleSaveUser}
+                  onDeleteUser={handleDeleteUser}
+                  onToggleUserStatus={handleToggleUserStatus}
+                />
+              )}
+
+              {activeTab === 'settings' && (
+                <SettingsModule
+                  procedures={procedures}
+                  onSaveProcedures={setProcedures}
+                  coupons={coupons}
+                  onSaveCoupons={setCoupons}
+                  branding={branding}
+                  onSaveBranding={setBranding}
+                  rolePrivileges={rolePrivileges}
+                  onSaveRolePrivileges={setRolePrivileges}
+                  financingPlans={financingPlans}
+                  onSaveFinancingPlans={setFinancingPlans}
+                  activeUser={activeUser}
+                  onNavigateToUsers={() => setActiveTab('users')}
+                />
+              )}
+            </>
           )}
         </main>
 
@@ -700,7 +1129,7 @@ export default function App() {
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 <span>
-                  {sheetConfig.spreadsheetId ? 'Google Sheets Conectado' : 'Conectar Google Sheets'}
+                  {(sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl) ? 'Google Sheets Conectado' : 'Conectar Google Sheets'}
                 </span>
                 {!isSuperAdmin && (
                   <span className="text-[10px] text-purple-600 font-semibold">(Super Admin)</span>
@@ -722,6 +1151,20 @@ export default function App() {
         isOpen={isNewPatientModalOpen}
         onClose={() => setIsNewPatientModalOpen(false)}
         onSavePatient={handleSavePatient}
+        availableProcedures={procedures}
+        availableCoupons={coupons}
+        availableFinancingPlans={financingPlans}
+      />
+
+      <EditPatientModal
+        isOpen={isEditPatientModalOpen}
+        onClose={() => {
+          setIsEditPatientModalOpen(false);
+          setPatientToEdit(null);
+        }}
+        patient={patientToEdit}
+        onSavePatient={handleUpdatePatient}
+        availableProcedures={procedures}
       />
 
       <NewPaymentModal
@@ -766,6 +1209,7 @@ export default function App() {
         onOpenWhatsApp={handleOpenWhatsAppReminder}
         onOpenNewPayment={handleOpenNewPaymentWithPatient}
         onOpenNewRefund={handleOpenNewRefundWithPatient}
+        onEditPatient={handleOpenEditPatient}
       />
 
       <GoogleSheetsSettingsModal
@@ -780,6 +1224,31 @@ export default function App() {
         onConnectExistingSheet={handleConnectExistingSheet}
         onSyncAllToSheet={handleSyncAllToSheet}
         onImportFromSheet={handleImportFromSheet}
+        onSaveGasConfig={handleConnectGas}
+        onDisconnectGas={handleDisconnectGas}
+        onSyncAllToGas={handleSyncAllToGas}
+        onImportFromGas={handleImportFromGas}
+      />
+
+      {/* User Profile Details & Password Modal */}
+      <UserProfileModal
+        isOpen={isUserProfileModalOpen}
+        onClose={() => setIsUserProfileModalOpen(false)}
+        currentUser={activeUser}
+        privileges={rolePrivileges}
+        onUpdateUser={handleUpdateCurrentUser}
+        onLogout={() => {
+          setIsUserProfileModalOpen(false);
+          setIsLoginModalOpen(true);
+        }}
+      />
+
+      {/* Email & Password Authentication Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        users={users}
+        onLoginSuccess={handleLoginSuccess}
       />
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Shield, User, Mail, Phone, FileText, CheckCircle2 } from 'lucide-react';
+import { X, Shield, User, Mail, Phone, FileText, CheckCircle2, KeyRound, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { SystemUser, UserRole } from '../types';
 
 interface UserModalProps {
@@ -53,15 +53,20 @@ export const UserModal: React.FC<UserModalProps> = ({
 }) => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<UserRole>('asistente');
   const [phone, setPhone] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [notes, setNotes] = useState('');
 
+  const isEdgarImmutable = userToEdit?.isImmutable || userToEdit?.email.toLowerCase() === 'edgar@morales.com';
+
   useEffect(() => {
     if (userToEdit) {
       setFullName(userToEdit.fullName);
       setEmail(userToEdit.email);
+      setPassword(userToEdit.password || '123456');
       setRole(userToEdit.role);
       setPhone(userToEdit.phone || '');
       setIsActive(userToEdit.isActive);
@@ -69,6 +74,7 @@ export const UserModal: React.FC<UserModalProps> = ({
     } else {
       setFullName('');
       setEmail('');
+      setPassword('');
       setRole('asistente');
       setPhone('+54911');
       setIsActive(true);
@@ -93,9 +99,11 @@ export const UserModal: React.FC<UserModalProps> = ({
       {
         fullName: fullName.trim(),
         email: email.trim(),
-        role,
+        password: password.trim() || '123456',
+        role: isEdgarImmutable ? 'super_admin' : role,
         phone: phone.trim() || undefined,
-        isActive,
+        isActive: isEdgarImmutable ? true : isActive,
+        isImmutable: isEdgarImmutable || userToEdit?.isImmutable,
         notes: notes.trim() || undefined,
       },
       userToEdit?.id
@@ -117,17 +125,26 @@ export const UserModal: React.FC<UserModalProps> = ({
                 {userToEdit ? 'Editar Usuario del Sistema' : 'Nuevo Usuario del Sistema'}
               </h2>
               <p className="text-xs text-slate-500">
-                Definir perfil, permisos y datos de acceso institucional
+                Definir credenciales, perfil de acceso y datos institucionales
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {isEdgarImmutable && (
+          <div className="bg-purple-50 border-b border-purple-200 px-6 py-2.5 flex items-center space-x-2 text-xs text-purple-900 font-medium">
+            <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0" />
+            <span>
+              <strong>Usuario Super Administrador Protegido:</strong> Su rol es permanente y no puede ser modificado ni desactivado.
+            </span>
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -146,7 +163,7 @@ export const UserModal: React.FC<UserModalProps> = ({
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Ej. Dra. Florencia Santillán"
-                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
               />
             </div>
           </div>
@@ -154,7 +171,7 @@ export const UserModal: React.FC<UserModalProps> = ({
           {/* Email */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Correo Electrónico Institucional *
+              Correo Electrónico (Login) *
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -163,12 +180,55 @@ export const UserModal: React.FC<UserModalProps> = ({
               <input
                 type="email"
                 required
+                disabled={Boolean(isEdgarImmutable)}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="nombre@drbelleza.com"
-                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-500"
               />
             </div>
+          </div>
+
+          {/* Password */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Contraseña de Acceso *
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="text-[11px] text-emerald-600 hover:text-emerald-700 font-medium flex items-center space-x-1 cursor-pointer"
+              >
+                {showPassword ? (
+                  <>
+                    <EyeOff className="w-3 h-3" />
+                    <span>Ocultar</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-3 h-3" />
+                    <span>Mostrar</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                <KeyRound className="w-4 h-4" />
+              </div>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 4 caracteres"
+                className="w-full pl-9 pr-10 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"
+              />
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Esta clave se solicitará para iniciar sesión en la plataforma.
+            </p>
           </div>
 
           {/* Phone */}
@@ -185,7 +245,7 @@ export const UserModal: React.FC<UserModalProps> = ({
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+5491145678900"
-                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
               />
             </div>
           </div>
@@ -198,8 +258,9 @@ export const UserModal: React.FC<UserModalProps> = ({
             <div className="space-y-2">
               <select
                 value={role}
+                disabled={Boolean(isEdgarImmutable)}
                 onChange={(e) => setRole(e.target.value as UserRole)}
-                className="w-full px-3 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                className="w-full px-3 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 disabled:bg-slate-100"
               >
                 <option value="super_admin">Super Administrador (Acceso Google Sheets)</option>
                 <option value="admin">Administrador</option>
@@ -228,9 +289,10 @@ export const UserModal: React.FC<UserModalProps> = ({
             <label className="flex items-center space-x-2.5 cursor-pointer">
               <input
                 type="checkbox"
+                disabled={Boolean(isEdgarImmutable)}
                 checked={isActive}
                 onChange={(e) => setIsActive(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
               />
               <span className="text-xs font-medium text-slate-700">
                 Usuario Activo (Habilitado para acceder a las operaciones del sistema)
@@ -252,7 +314,7 @@ export const UserModal: React.FC<UserModalProps> = ({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Ej. Cirujano de guardia, responsable de facturación..."
-                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 resize-none"
+                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none"
               />
             </div>
           </div>
@@ -262,15 +324,15 @@ export const UserModal: React.FC<UserModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+              className="px-4 py-2 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white shadow-xs transition-colors cursor-pointer"
+              className="flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white shadow-xs transition-colors cursor-pointer"
             >
-              <CheckCircle2 className="w-4 h-4 text-amber-300" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-300" />
               <span>{userToEdit ? 'Guardar Cambios' : 'Crear Usuario'}</span>
             </button>
           </div>

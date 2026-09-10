@@ -79,7 +79,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
               <span className="hidden sm:inline">Google Sheets:</span>
-              {sheetConfig.spreadsheetId ? (
+              {(sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl) ? (
                 <span className="flex items-center text-emerald-700 font-semibold">
                   <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
                   Conectado
@@ -93,7 +93,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             {/* Quick sync button if connected */}
-            {sheetConfig.spreadsheetId && (
+            {(sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl) && (
               <button
                 onClick={onManualSync}
                 disabled={sheetConfig.isSyncing}

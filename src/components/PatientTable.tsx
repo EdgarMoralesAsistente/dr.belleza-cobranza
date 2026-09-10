@@ -11,6 +11,10 @@ import {
   UserCheck,
   AlertCircle,
   Filter,
+  Edit3,
+  Trash2,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { Patient, Payment, Refund } from '../types';
 
@@ -22,6 +26,8 @@ interface PatientTableProps {
   onOpenNewPayment: (patientId: string) => void;
   onOpenNewRefund: (patientId: string) => void;
   onSelectPatientDetails: (patient: Patient) => void;
+  onEditPatient: (patient: Patient) => void;
+  onDeletePatient: (patientId: string) => void;
 }
 
 export const PatientTable: React.FC<PatientTableProps> = ({
@@ -32,9 +38,12 @@ export const PatientTable: React.FC<PatientTableProps> = ({
   onOpenNewPayment,
   onOpenNewRefund,
   onSelectPatientDetails,
+  onEditPatient,
+  onDeletePatient,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'paid' | 'overdue'>('all');
+  const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
 
   // Filter patients
   const filteredPatients = patients.filter((patient) => {
@@ -42,6 +51,10 @@ export const PatientTable: React.FC<PatientTableProps> = ({
       patient.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       patient.idNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       patient.procedure.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (patient.city && patient.city.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (patient.campaign && patient.campaign.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (patient.email && patient.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (patient.financingPlanName && patient.financingPlanName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       patient.phone.includes(searchTerm);
 
     if (!matchesSearch) return false;
@@ -196,21 +209,38 @@ export const PatientTable: React.FC<PatientTableProps> = ({
                         >
                           {patient.fullName}
                         </button>
-                        <div className="text-xs text-slate-400 flex items-center space-x-1">
+                        <div className="text-xs text-slate-400 flex flex-wrap items-center gap-1 mt-0.5">
                           <span>DNI: {patient.idNumber || 'S/D'}</span>
-                          <span>•</span>
-                          <span>{patient.id}</span>
+                          {patient.city && (
+                            <>
+                              <span>•</span>
+                              <span className="text-slate-600">{patient.city}</span>
+                            </>
+                          )}
+                          {patient.campaign && (
+                            <>
+                              <span>•</span>
+                              <span className="text-emerald-700 font-medium bg-emerald-50 px-1 rounded-sm border border-emerald-200 text-[10px]">
+                                {patient.campaign}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </td>
 
-                    {/* Procedimiento */}
+                    {/* Procedimiento & Plan */}
                     <td className="py-3 px-4">
                       <span className="font-medium text-slate-800">
                         {patient.procedure}
                       </span>
-                      <div className="text-[11px] text-slate-400">
-                        {patient.doctor || 'Dr. Jorge Apelencia'}
+                      <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-1.5 mt-0.5">
+                        <span>{patient.doctor || 'Dr. Jorge Apelencia'}</span>
+                        {patient.financingPlanName && (
+                          <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-sm border border-blue-200">
+                            {patient.financingPlanName} ({patient.financingFrequency})
+                          </span>
+                        )}
                       </div>
                     </td>
 
@@ -272,7 +302,7 @@ export const PatientTable: React.FC<PatientTableProps> = ({
                         {/* WhatsApp Web Button */}
                         <button
                           onClick={() => onOpenWhatsApp(patient)}
-                          className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors"
+                          className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors cursor-pointer"
                           title="Enviar WhatsApp Web a la paciente"
                         >
                           <MessageCircle className="w-4 h-4" />
@@ -281,7 +311,7 @@ export const PatientTable: React.FC<PatientTableProps> = ({
                         {/* Registrar Abono */}
                         <button
                           onClick={() => onOpenNewPayment(patient.id)}
-                          className="p-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-900 hover:text-white transition-colors"
+                          className="p-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-900 hover:text-white transition-colors cursor-pointer"
                           title="Registrar Abono"
                         >
                           <DollarSign className="w-4 h-4" />
@@ -290,7 +320,7 @@ export const PatientTable: React.FC<PatientTableProps> = ({
                         {/* Registrar Reintegro */}
                         <button
                           onClick={() => onOpenNewRefund(patient.id)}
-                          className="p-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-colors"
+                          className="p-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-colors cursor-pointer"
                           title="Registrar Reintegro / Devolución"
                         >
                           <Undo2 className="w-4 h-4" />
@@ -299,10 +329,28 @@ export const PatientTable: React.FC<PatientTableProps> = ({
                         {/* Ver Ficha / Historial */}
                         <button
                           onClick={() => onSelectPatientDetails(patient)}
-                          className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-blue-600 hover:text-white transition-colors"
+                          className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-blue-600 hover:text-white transition-colors cursor-pointer"
                           title="Ver Historial Completo"
                         >
                           <Eye className="w-4 h-4" />
+                        </button>
+
+                        {/* Editar Registro de Paciente */}
+                        <button
+                          onClick={() => onEditPatient(patient)}
+                          className="p-1.5 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-colors cursor-pointer"
+                          title="Editar Registro de la Paciente"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+
+                        {/* Borrar Paciente */}
+                        <button
+                          onClick={() => setPatientToDelete(patient)}
+                          className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-colors cursor-pointer"
+                          title="Borrar Paciente"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -313,6 +361,73 @@ export const PatientTable: React.FC<PatientTableProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Modal de Confirmación para Borrar Paciente */}
+      {patientToDelete && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-rose-50/60">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-xl bg-rose-100 text-rose-700">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    ¿Eliminar registro de paciente?
+                  </h3>
+                  <p className="text-xs text-rose-700">
+                    Esta acción no se puede deshacer
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPatientToDelete(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white/80 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs text-slate-600">
+              <p>
+                Está a punto de eliminar definitivamente del sistema a la paciente:
+              </p>
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <p className="font-bold text-slate-900 text-sm">{patientToDelete.fullName}</p>
+                <p className="text-slate-500">DNI: <span className="font-semibold text-slate-700">{patientToDelete.idNumber}</span></p>
+                <p className="text-slate-500">Procedimiento: <span className="font-semibold text-slate-700">{patientToDelete.procedure}</span></p>
+                <p className="text-slate-500">
+                  Saldo pendiente: <span className={`font-bold ${patientToDelete.balance > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>${patientToDelete.balance.toLocaleString()} USD</span>
+                </p>
+              </div>
+              <p className="text-[11px] text-slate-500 italic">
+                Se quitará del directorio y se limpiarán los eventos y tareas de cobranza vinculados a esta paciente en el CRM.
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end space-x-2.5">
+              <button
+                type="button"
+                onClick={() => setPatientToDelete(null)}
+                className="px-4 py-2 rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 font-semibold transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeletePatient(patientToDelete.id);
+                  setPatientToDelete(null);
+                }}
+                className="px-4 py-2 rounded-xl text-white bg-rose-600 hover:bg-rose-700 font-bold transition-colors shadow-2xs cursor-pointer flex items-center space-x-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Sí, Eliminar Paciente</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

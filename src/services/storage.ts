@@ -8,13 +8,33 @@ import {
   DiscountCoupon,
   AppBrandingConfig,
   RolePrivilege,
+  FinancingPlan,
+  CRMEvent,
 } from '../types';
 
+export const EDGAR_SUPER_ADMIN_ID = 'USR-SUPER-EDGAR';
+
+export const EDGAR_SUPER_ADMIN_USER: SystemUser = {
+  id: EDGAR_SUPER_ADMIN_ID,
+  fullName: 'Edgar Morales',
+  email: 'edgar@morales.com',
+  password: '12697670',
+  role: 'super_admin',
+  phone: '+5491145678900',
+  isActive: true,
+  isImmutable: true,
+  createdAt: '2026-01-01',
+  lastLogin: 'En línea',
+  notes: 'Super Administrador Titular del Sistema. Usuario permanente con acceso irrestricto e inmutable.',
+};
+
 export const INITIAL_USERS: SystemUser[] = [
+  EDGAR_SUPER_ADMIN_USER,
   {
     id: 'USR-101',
     fullName: 'Dr. Jorge Apelencia',
     email: 'jorge.apelencia@drbelleza.com',
+    password: 'jorge2026',
     role: 'super_admin',
     phone: '+5491145678900',
     isActive: true,
@@ -26,6 +46,7 @@ export const INITIAL_USERS: SystemUser[] = [
     id: 'USR-102',
     fullName: 'Lic. Marcela Vega',
     email: 'marcela.vega@drbelleza.com',
+    password: 'marcela2026',
     role: 'admin',
     phone: '+5491145678901',
     isActive: true,
@@ -37,6 +58,7 @@ export const INITIAL_USERS: SystemUser[] = [
     id: 'USR-103',
     fullName: 'Dr. Carlos Santillán',
     email: 'carlos.santillan@drbelleza.com',
+    password: 'carlos2026',
     role: 'medico',
     phone: '+5491145678902',
     isActive: true,
@@ -48,6 +70,7 @@ export const INITIAL_USERS: SystemUser[] = [
     id: 'USR-104',
     fullName: 'Cdr. Esteban Morales',
     email: 'esteban.morales@drbelleza.com',
+    password: 'esteban2026',
     role: 'financiero',
     phone: '+5491145678903',
     isActive: true,
@@ -59,6 +82,7 @@ export const INITIAL_USERS: SystemUser[] = [
     id: 'USR-105',
     fullName: 'Luciana Gómez',
     email: 'luciana.gomez@drbelleza.com',
+    password: 'luciana2026',
     role: 'asistente',
     phone: '+5491145678904',
     isActive: true,
@@ -74,6 +98,9 @@ const INITIAL_PATIENTS: Patient[] = [
     fullName: 'Mariana Silva Gómez',
     phone: '+5491145678901',
     idNumber: '38.452.190',
+    email: 'mariana.silva@gmail.com',
+    city: 'Buenos Aires (CABA)',
+    campaign: 'Instagram Ads - Rinoplastia',
     procedure: 'Rinoplastia Ultrasónica Estructural',
     doctor: 'Dr. Jorge Apelencia',
     totalCost: 3200,
@@ -83,12 +110,21 @@ const INITIAL_PATIENTS: Patient[] = [
     nextPaymentDate: '2026-09-15',
     status: 'pending',
     notes: 'Presupuesto congelado. Saldo restante contra fecha quirúrgica de Octubre.',
+    financingPlanId: 'PLAN-001',
+    financingPlanName: 'Plan 6 Meses - Mensual (Sin Interés)',
+    financingMonths: 6,
+    financingFrequency: 'Mensual',
+    financingInstallmentsCount: 6,
+    financingInstallmentAmount: 200,
   },
   {
     id: 'PAC-1002',
     fullName: 'Valeria Lucía Benítez',
     phone: '+5491167891234',
     idNumber: '40.112.543',
+    email: 'valeria.benitez@hotmail.com',
+    city: 'Córdoba',
+    campaign: 'Google Ads Search',
     procedure: 'Lipoescultura HD con Marcación',
     doctor: 'Dr. Jorge Apelencia',
     totalCost: 4500,
@@ -97,12 +133,21 @@ const INITIAL_PATIENTS: Patient[] = [
     registrationDate: '2026-08-01',
     status: 'paid',
     notes: 'Cancelación total completada. Quirófano asignado para el 20 de Septiembre.',
+    financingPlanId: 'PLAN-006',
+    financingPlanName: 'Pago Contado / En Una Sola Cuota',
+    financingMonths: 1,
+    financingFrequency: 'Mensual',
+    financingInstallmentsCount: 1,
+    financingInstallmentAmount: 4500,
   },
   {
     id: 'PAC-1003',
     fullName: 'Carolina Mendoza Paz',
     phone: '+5491189012345',
     idNumber: '35.981.442',
+    email: 'carolina.mendoza@yahoo.com',
+    city: 'Rosario',
+    campaign: 'TikTok Ads - Cirugías',
     procedure: 'Mamoplastia de Aumento (Mentor 350cc)',
     doctor: 'Dr. Jorge Apelencia',
     totalCost: 3800,
@@ -112,12 +157,21 @@ const INITIAL_PATIENTS: Patient[] = [
     nextPaymentDate: '2026-09-10',
     status: 'pending',
     notes: 'Abonó reserva de prótesis y reserva de quirófano. Cuota 2 pendiente.',
+    financingPlanId: 'PLAN-003',
+    financingPlanName: 'Plan 12 Meses - Quincenal',
+    financingMonths: 12,
+    financingFrequency: 'Quincenal',
+    financingInstallmentsCount: 24,
+    financingInstallmentAmount: 95.83,
   },
   {
     id: 'PAC-1004',
     fullName: 'Florencia Antonella Ruiz',
     phone: '+5491123456789',
     idNumber: '42.330.129',
+    email: 'flor.ruiz@gmail.com',
+    city: 'Buenos Aires (La Plata)',
+    campaign: 'Referido de Paciente',
     procedure: 'Armonización Facial (Bótox + Ácido Hialurónico)',
     doctor: 'Dr. Jorge Apelencia',
     totalCost: 950,
@@ -126,12 +180,21 @@ const INITIAL_PATIENTS: Patient[] = [
     registrationDate: '2026-09-02',
     status: 'paid',
     notes: 'Tratamiento ambulatorio en consultorio realizado.',
+    financingPlanId: 'PLAN-006',
+    financingPlanName: 'Pago Contado / En Una Sola Cuota',
+    financingMonths: 1,
+    financingFrequency: 'Mensual',
+    financingInstallmentsCount: 1,
+    financingInstallmentAmount: 950,
   },
   {
     id: 'PAC-1005',
     fullName: 'Sofía Agustina Romero',
     phone: '+5491134567890',
     idNumber: '39.022.901',
+    email: 'sofia.romero@outlook.com',
+    city: 'Mendoza',
+    campaign: 'Campaña Blefaro Verano',
     procedure: 'Blefaroplastia Superior e Inferior',
     doctor: 'Dr. Jorge Apelencia',
     totalCost: 2100,
@@ -141,6 +204,12 @@ const INITIAL_PATIENTS: Patient[] = [
     nextPaymentDate: '2026-09-05',
     status: 'overdue',
     notes: 'Fecha de pago de saldo vencida hace 3 días. Enviar recordatorio WhatsApp.',
+    financingPlanId: 'PLAN-001',
+    financingPlanName: 'Plan 6 Meses - Mensual (Sin Interés)',
+    financingMonths: 6,
+    financingFrequency: 'Mensual',
+    financingInstallmentsCount: 6,
+    financingInstallmentAmount: 250,
   },
 ];
 
@@ -257,12 +326,40 @@ const STORAGE_KEYS = {
   COUPONS: 'dr_belleza_coupons_v1',
   BRANDING: 'dr_belleza_branding_v1',
   ROLE_PRIVILEGES: 'dr_belleza_role_privileges_v1',
+  FINANCING_PLANS: 'dr_belleza_financing_plans_v1',
+  CRM_EVENTS: 'dr_belleza_crm_events_v1',
 };
 
 export function loadLocalUsers(): SystemUser[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-    if (saved) return JSON.parse(saved);
+    let userList: SystemUser[] = saved ? JSON.parse(saved) : INITIAL_USERS;
+
+    // Asegurar que Edgar Morales siempre exista, con su contraseña y marcado como inmutable
+    const hasEdgar = userList.some(
+      (u) => u.id === EDGAR_SUPER_ADMIN_ID || u.email.toLowerCase() === 'edgar@morales.com'
+    );
+    if (!hasEdgar) {
+      userList = [EDGAR_SUPER_ADMIN_USER, ...userList];
+    } else {
+      userList = userList.map((u) => {
+        if (u.id === EDGAR_SUPER_ADMIN_ID || u.email.toLowerCase() === 'edgar@morales.com') {
+          return {
+            ...u,
+            id: EDGAR_SUPER_ADMIN_ID,
+            fullName: 'Edgar Morales',
+            email: 'edgar@morales.com',
+            password: u.password || '12697670',
+            role: 'super_admin' as const,
+            isActive: true,
+            isImmutable: true,
+          };
+        }
+        return u;
+      });
+    }
+
+    return userList;
   } catch (e) {
     console.error('Error loading users from localStorage', e);
   }
@@ -271,7 +368,31 @@ export function loadLocalUsers(): SystemUser[] {
 
 export function saveLocalUsers(users: SystemUser[]): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    // Blindaje de seguridad: Edgar Morales NUNCA puede ser omitido ni borrado
+    let safeUsers = [...users];
+    const hasEdgar = safeUsers.some(
+      (u) => u.id === EDGAR_SUPER_ADMIN_ID || u.email.toLowerCase() === 'edgar@morales.com'
+    );
+    if (!hasEdgar) {
+      safeUsers = [EDGAR_SUPER_ADMIN_USER, ...safeUsers];
+    } else {
+      safeUsers = safeUsers.map((u) => {
+        if (u.id === EDGAR_SUPER_ADMIN_ID || u.email.toLowerCase() === 'edgar@morales.com') {
+          return {
+            ...u,
+            id: EDGAR_SUPER_ADMIN_ID,
+            fullName: 'Edgar Morales',
+            email: 'edgar@morales.com',
+            role: 'super_admin' as const,
+            isActive: true,
+            isImmutable: true,
+          };
+        }
+        return u;
+      });
+    }
+
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(safeUsers));
   } catch (e) {
     console.error('Error saving users to localStorage', e);
   }
@@ -284,7 +405,7 @@ export function loadActiveUserId(): string {
   } catch (e) {
     console.error('Error loading active user id', e);
   }
-  return 'USR-101'; // Default: Dr. Jorge Apelencia (Super Admin)
+  return EDGAR_SUPER_ADMIN_ID; // Predeterminado: Edgar Morales (Super Admin)
 }
 
 export function saveActiveUserId(userId: string): void {
@@ -352,7 +473,16 @@ export function saveLocalRefunds(refunds: Refund[]): void {
 export function loadGoogleSheetConfig(): GoogleSheetConfig {
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.SHEET_CONFIG);
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (!parsed.gasDeploymentUrl && (import.meta as any).env?.VITE_GOOGLE_APPS_SCRIPT_URL) {
+        parsed.gasDeploymentUrl = (import.meta as any).env.VITE_GOOGLE_APPS_SCRIPT_URL;
+      }
+      if (!parsed.syncMode) {
+        parsed.syncMode = parsed.gasDeploymentUrl ? 'apps_script' : 'direct_oauth';
+      }
+      return parsed;
+    }
   } catch (e) {
     console.error('Error loading sheet config from localStorage', e);
   }
@@ -360,6 +490,8 @@ export function loadGoogleSheetConfig(): GoogleSheetConfig {
     spreadsheetId: null,
     spreadsheetUrl: null,
     spreadsheetName: 'Dr. Belleza - Cobranza (Dr. Jorge Apelencia)',
+    gasDeploymentUrl: (import.meta as any).env?.VITE_GOOGLE_APPS_SCRIPT_URL || null,
+    syncMode: 'apps_script',
     lastSyncTime: null,
     isSyncing: false,
     error: null,
@@ -693,3 +825,421 @@ export function saveLocalRolePrivileges(privileges: RolePrivilege[]): void {
     console.error('Error saving role privileges to localStorage', e);
   }
 }
+
+export const INITIAL_FINANCING_PLANS: FinancingPlan[] = [
+  {
+    id: 'PLAN-001',
+    name: 'Plan 6 Meses - Mensual (Sin Interés)',
+    months: 6,
+    frequency: 'Mensual',
+    installmentsCount: 6,
+    interestRatePercent: 0,
+    downPaymentPercent: 20,
+    isActive: true,
+    description: 'Financiamiento directo en 6 cuotas mensuales fijas sin recargo, con 20% de seña para congelar valor.',
+  },
+  {
+    id: 'PLAN-002',
+    name: 'Plan 12 Meses - Mensual',
+    months: 12,
+    frequency: 'Mensual',
+    installmentsCount: 12,
+    interestRatePercent: 8,
+    downPaymentPercent: 15,
+    isActive: true,
+    description: '12 cuotas mensuales accesibles con tasa reducida de consultorio para cirugías estéticas.',
+  },
+  {
+    id: 'PLAN-003',
+    name: 'Plan 12 Meses - Quincenal',
+    months: 12,
+    frequency: 'Quincenal',
+    installmentsCount: 24,
+    interestRatePercent: 5,
+    downPaymentPercent: 10,
+    isActive: true,
+    description: '24 pagos quincenales coincidentes con fechas de cobro salarial de la paciente.',
+  },
+  {
+    id: 'PLAN-004',
+    name: 'Plan 24 Meses - Mensual (Extendido)',
+    months: 24,
+    frequency: 'Mensual',
+    installmentsCount: 24,
+    interestRatePercent: 12,
+    downPaymentPercent: 20,
+    isActive: true,
+    description: 'Plan a largo plazo con cuota mínima súper reducida para cirugías corporales o combinadas.',
+  },
+  {
+    id: 'PLAN-005',
+    name: 'Plan 3 Meses - Semanal (Pre-quirófano)',
+    months: 3,
+    frequency: 'Semanal',
+    installmentsCount: 12,
+    interestRatePercent: 0,
+    downPaymentPercent: 25,
+    isActive: true,
+    description: '12 abonos semanales rápidos con 0% de recargo hasta completar la fecha quirúrgica.',
+  },
+  {
+    id: 'PLAN-006',
+    name: 'Plan 6 Meses - Quincenal',
+    months: 6,
+    frequency: 'Quincenal',
+    installmentsCount: 12,
+    interestRatePercent: 0,
+    downPaymentPercent: 20,
+    isActive: true,
+    description: '12 pagos quincenales sin interés previo al ingreso a quirófano.',
+  },
+  {
+    id: 'PLAN-007',
+    name: 'Pago Contado / En Una Sola Cuota',
+    months: 1,
+    frequency: 'Mensual',
+    installmentsCount: 1,
+    interestRatePercent: 0,
+    downPaymentPercent: 100,
+    isActive: true,
+    description: 'Cancelación total en un solo abono de contado (Transferencia o Efectivo).',
+  },
+];
+
+export function loadLocalFinancingPlans(): FinancingPlan[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.FINANCING_PLANS);
+    if (saved) return JSON.parse(saved);
+  } catch (e) {
+    console.error('Error loading financing plans from localStorage', e);
+  }
+  return INITIAL_FINANCING_PLANS;
+}
+
+export function saveLocalFinancingPlans(plans: FinancingPlan[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.FINANCING_PLANS, JSON.stringify(plans));
+  } catch (e) {
+    console.error('Error saving financing plans to localStorage', e);
+  }
+}
+
+export const INITIAL_CRM_EVENTS: CRMEvent[] = [
+  {
+    id: 'CRM-INIT-1',
+    patientId: 'PAC-1001',
+    patientName: 'Mariana Silva Gómez',
+    patientPhone: '+5491145678901',
+    type: 'notificacion_cobro',
+    title: 'Aviso Previo: Cuota #1/6 ($200 USD)',
+    description: 'Enviar recordatorio por WhatsApp 48h antes del vencimiento. Plan 6 Meses Sin Interés.',
+    dueDate: '2026-09-13',
+    dueTime: '09:30',
+    status: 'pending',
+    priority: 'media',
+    amount: 200,
+    installmentNumber: 1,
+    totalInstallments: 6,
+    procedure: 'Rinoplastia Ultrasónica Estructural',
+    createdAt: '2026-08-10T10:00:00.000Z',
+    channel: 'whatsapp',
+    assignedTo: 'Luciana Gómez (Secretaría)',
+  },
+  {
+    id: 'CRM-INIT-2',
+    patientId: 'PAC-1001',
+    patientName: 'Mariana Silva Gómez',
+    patientPhone: '+5491145678901',
+    type: 'vencimiento_cuota',
+    title: 'Vencimiento Cuota #1/6 ($200 USD)',
+    description: 'Cobro de la primera cuota pactada. Solicitar comprobante de transferencia bancaria.',
+    dueDate: '2026-09-15',
+    dueTime: '11:00',
+    status: 'pending',
+    priority: 'alta',
+    amount: 200,
+    installmentNumber: 1,
+    totalInstallments: 6,
+    procedure: 'Rinoplastia Ultrasónica Estructural',
+    createdAt: '2026-08-10T10:00:00.000Z',
+    channel: 'whatsapp',
+    assignedTo: 'Cdr. Esteban Morales (Finanzas)',
+  },
+  {
+    id: 'CRM-INIT-3',
+    patientId: 'PAC-1003',
+    patientName: 'Camila Andrea Roldán',
+    patientPhone: '+5491134567890',
+    type: 'vencimiento_cuota',
+    title: 'Vencimiento Cobro Cuota #2 ($250 USD)',
+    description: 'Vence hoy la 2da cuota quincenal de aumento mamario. Confirmar acreditación en cuenta bancaria.',
+    dueDate: '2026-09-09',
+    dueTime: '10:00',
+    status: 'in_progress',
+    priority: 'alta',
+    amount: 250,
+    installmentNumber: 2,
+    totalInstallments: 6,
+    procedure: 'Mastopexia con Implantes Mentor',
+    createdAt: '2026-08-15T14:30:00.000Z',
+    channel: 'whatsapp',
+    assignedTo: 'Luciana Gómez (Secretaría)',
+  },
+  {
+    id: 'CRM-INIT-4',
+    patientId: 'PAC-1002',
+    patientName: 'Valeria Lucía Benítez',
+    patientPhone: '+5491167891234',
+    type: 'seguimiento_medico',
+    title: 'Chequeo de Analíticas y Turno Quirófano',
+    description: 'Revisar analíticas de coagulación y electrocardiograma. Quirófano programado para 20-Sept.',
+    dueDate: '2026-09-10',
+    dueTime: '16:00',
+    status: 'pending',
+    priority: 'media',
+    procedure: 'Lipoescultura HD con Marcación',
+    createdAt: '2026-08-01T12:00:00.000Z',
+    channel: 'llamada',
+    assignedTo: 'Lic. Marcela Vega (Admin)',
+  },
+  {
+    id: 'CRM-INIT-5',
+    patientId: 'PAC-1001',
+    patientName: 'Mariana Silva Gómez',
+    patientPhone: '+5491145678901',
+    type: 'bienvenida',
+    title: 'Bienvenida y Apertura de Ficha Digital',
+    description: 'Envío de protocolo prequirúrgico y bienvenida al consultorio por WhatsApp.',
+    dueDate: '2026-08-10',
+    dueTime: '10:15',
+    status: 'completed',
+    priority: 'alta',
+    procedure: 'Rinoplastia Ultrasónica Estructural',
+    createdAt: '2026-08-10T09:00:00.000Z',
+    completedAt: '2026-08-10T11:00:00.000Z',
+    channel: 'whatsapp',
+    assignedTo: 'Luciana Gómez (Secretaría)',
+  },
+  {
+    id: 'CRM-INIT-6',
+    patientId: 'PAC-1002',
+    patientName: 'Valeria Lucía Benítez',
+    patientPhone: '+5491167891234',
+    type: 'confirmacion_abono',
+    title: 'Cancelación Total Registrada ($4,500 USD)',
+    description: 'Emisión de recibo final cancelatorio y reserva de quirófano en Sanatorio.',
+    dueDate: '2026-08-01',
+    dueTime: '13:00',
+    status: 'completed',
+    priority: 'media',
+    amount: 4500,
+    procedure: 'Lipoescultura HD con Marcación',
+    createdAt: '2026-08-01T11:00:00.000Z',
+    completedAt: '2026-08-01T13:30:00.000Z',
+    channel: 'whatsapp',
+    assignedTo: 'Cdr. Esteban Morales (Finanzas)',
+  },
+];
+
+export function loadLocalCRMEvents(): CRMEvent[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.CRM_EVENTS);
+    if (saved) return JSON.parse(saved);
+  } catch (e) {
+    console.error('Error loading CRM events from localStorage', e);
+  }
+  return INITIAL_CRM_EVENTS;
+}
+
+export function saveLocalCRMEvents(events: CRMEvent[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.CRM_EVENTS, JSON.stringify(events));
+  } catch (e) {
+    console.error('Error saving CRM events to localStorage', e);
+  }
+}
+
+export function generatePatientCRMEvents(
+  patient: Patient,
+  initialPaymentAmount?: number
+): CRMEvent[] {
+  const events: CRMEvent[] = [];
+  const now = new Date();
+  const createdIso = now.toISOString();
+  const regDate = patient.registrationDate || now.toISOString().split('T')[0];
+
+  // 1. Evento de Bienvenida y Confirmación de Registro
+  events.push({
+    id: `CRM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}-bienvenida`,
+    patientId: patient.id,
+    patientName: patient.fullName,
+    patientPhone: patient.phone,
+    type: 'bienvenida',
+    title: `Bienvenida y Ficha Médica Digital`,
+    description: `Enviar bienvenida formal por WhatsApp a ${patient.fullName}, confirmando procedimiento presupuestado: ${patient.procedure}.`,
+    dueDate: regDate,
+    dueTime: '10:00',
+    status: 'pending',
+    priority: 'alta',
+    channel: 'whatsapp',
+    procedure: patient.procedure,
+    createdAt: createdIso,
+    assignedTo: 'Luciana Gómez (Secretaría)',
+  });
+
+  // 2. Si hubo pago inicial o seña registrada
+  if (initialPaymentAmount && initialPaymentAmount > 0) {
+    events.push({
+      id: `CRM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}-seña`,
+      patientId: patient.id,
+      patientName: patient.fullName,
+      patientPhone: patient.phone,
+      type: 'confirmacion_abono',
+      title: `Envío de Comprobante de Seña ($${initialPaymentAmount.toLocaleString()} USD)`,
+      description: `Seña / pago inicial por $${initialPaymentAmount.toLocaleString()} USD recibido para ${patient.fullName}. Presupuesto congelado y quirófano reservado.`,
+      dueDate: regDate,
+      dueTime: '11:30',
+      status: 'completed',
+      priority: 'media',
+      amount: initialPaymentAmount,
+      channel: 'whatsapp',
+      procedure: patient.procedure,
+      createdAt: createdIso,
+      completedAt: createdIso,
+      assignedTo: 'Cdr. Esteban Morales (Finanzas)',
+    });
+  }
+
+  // 3. Seguimiento Pre-quirúrgico y Chequeo de Analíticas (5 días después del alta)
+  const preOpDate = new Date(regDate);
+  preOpDate.setDate(preOpDate.getDate() + 5);
+  const preOpDateStr = preOpDate.toISOString().split('T')[0];
+
+  events.push({
+    id: `CRM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}-preop`,
+    patientId: patient.id,
+    patientName: patient.fullName,
+    patientPhone: patient.phone,
+    type: 'seguimiento_medico',
+    title: `Seguimiento Pre-Quirúrgico y Chequeo de Analíticas`,
+    description: `Llamar o escribir a ${patient.fullName} para verificar realización de análisis pre-operatorios y valoración cardiológica para ${patient.procedure}.`,
+    dueDate: preOpDateStr,
+    dueTime: '11:00',
+    status: 'pending',
+    priority: 'media',
+    channel: 'llamada',
+    procedure: patient.procedure,
+    createdAt: createdIso,
+    assignedTo: 'Lic. Marcela Vega (Admin)',
+  });
+
+  // 4. Notificaciones de Cobro y Vencimientos de Cuotas
+  if (patient.paymentSchedule && patient.paymentSchedule.length > 0) {
+    patient.paymentSchedule.forEach((installment) => {
+      // Recordatorio previo (2 días antes de dueDate)
+      const dueObj = new Date(installment.dueDate);
+      const reminderObj = new Date(dueObj);
+      reminderObj.setDate(reminderObj.getDate() - 2);
+      const reminderDateStr = reminderObj.toISOString().split('T')[0];
+
+      // A) Notificación preventiva de cobro
+      events.push({
+        id: `CRM-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}-r${installment.installmentNumber}`,
+        patientId: patient.id,
+        patientName: patient.fullName,
+        patientPhone: patient.phone,
+        type: 'notificacion_cobro',
+        title: `Aviso Previo: Cuota #${installment.installmentNumber}/${patient.paymentSchedule!.length} ($${installment.amount.toLocaleString()} USD)`,
+        description: `Enviar recordatorio preventivo 48h antes del vencimiento a ${patient.fullName} para la cuota #${installment.installmentNumber} por $${installment.amount.toLocaleString()} USD.`,
+        dueDate: reminderDateStr,
+        dueTime: '09:30',
+        status: installment.status === 'paid' ? 'completed' : 'pending',
+        priority: 'media',
+        amount: installment.amount,
+        installmentNumber: installment.installmentNumber,
+        totalInstallments: patient.paymentSchedule!.length,
+        channel: 'whatsapp',
+        procedure: patient.procedure,
+        createdAt: createdIso,
+        assignedTo: 'Luciana Gómez (Secretaría)',
+      });
+
+      // B) Cobro en la fecha exacta de vencimiento
+      events.push({
+        id: `CRM-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}-v${installment.installmentNumber}`,
+        patientId: patient.id,
+        patientName: patient.fullName,
+        patientPhone: patient.phone,
+        type: 'vencimiento_cuota',
+        title: `Vencimiento de Cobro: Cuota #${installment.installmentNumber}/${patient.paymentSchedule!.length} ($${installment.amount.toLocaleString()} USD)`,
+        description: `Vencimiento oficial de la cuota #${installment.installmentNumber}. Solicitar comprobante de transferencia o pago en consultorio a ${patient.fullName}.`,
+        dueDate: installment.dueDate,
+        dueTime: '10:00',
+        status: installment.status === 'paid' ? 'completed' : 'pending',
+        priority: 'alta',
+        amount: installment.amount,
+        installmentNumber: installment.installmentNumber,
+        totalInstallments: patient.paymentSchedule!.length,
+        channel: 'whatsapp',
+        procedure: patient.procedure,
+        createdAt: createdIso,
+        assignedTo: 'Cdr. Esteban Morales (Finanzas)',
+      });
+    });
+  } else if (patient.balance > 0) {
+    // Si no tiene cronograma pero tiene saldo pendiente
+    const targetDueDate = patient.nextPaymentDate || (() => {
+      const d = new Date(regDate);
+      d.setDate(d.getDate() + 15);
+      return d.toISOString().split('T')[0];
+    })();
+
+    const dueObj = new Date(targetDueDate);
+    const reminderObj = new Date(dueObj);
+    reminderObj.setDate(reminderObj.getDate() - 2);
+    const reminderDateStr = reminderObj.toISOString().split('T')[0];
+
+    // Aviso previo
+    events.push({
+      id: `CRM-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}-r1`,
+      patientId: patient.id,
+      patientName: patient.fullName,
+      patientPhone: patient.phone,
+      type: 'notificacion_cobro',
+      title: `Aviso Previo de Saldo Pendiente ($${patient.balance.toLocaleString()} USD)`,
+      description: `Enviar recordatorio previo de cobranza a ${patient.fullName} sobre saldo pendiente de $${patient.balance.toLocaleString()} USD para ${patient.procedure}.`,
+      dueDate: reminderDateStr,
+      dueTime: '09:30',
+      status: 'pending',
+      priority: 'media',
+      amount: patient.balance,
+      channel: 'whatsapp',
+      procedure: patient.procedure,
+      createdAt: createdIso,
+      assignedTo: 'Luciana Gómez (Secretaría)',
+    });
+
+    // Vencimiento oficial
+    events.push({
+      id: `CRM-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}-v1`,
+      patientId: patient.id,
+      patientName: patient.fullName,
+      patientPhone: patient.phone,
+      type: 'vencimiento_cuota',
+      title: `Vencimiento de Saldo Quirúrgico ($${patient.balance.toLocaleString()} USD)`,
+      description: `Vencimiento pactado con ${patient.fullName}. Solicitar abono del saldo restante de $${patient.balance.toLocaleString()} USD.`,
+      dueDate: targetDueDate,
+      dueTime: '10:00',
+      status: 'pending',
+      priority: 'alta',
+      amount: patient.balance,
+      channel: 'whatsapp',
+      procedure: patient.procedure,
+      createdAt: createdIso,
+      assignedTo: 'Cdr. Esteban Morales (Finanzas)',
+    });
+  }
+
+  return events;
+}
+

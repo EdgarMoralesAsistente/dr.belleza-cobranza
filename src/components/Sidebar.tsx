@@ -24,8 +24,9 @@ import {
   HeartPulse,
   Stethoscope,
   Award,
+  Kanban,
 } from 'lucide-react';
-import { ActiveTab, GoogleSheetConfig, SystemUser, UserRole, AppBrandingConfig } from '../types';
+import { ActiveTab, GoogleSheetConfig, SystemUser, UserRole, AppBrandingConfig, RolePrivilege } from '../types';
 import { User } from 'firebase/auth';
 
 interface SidebarProps {
@@ -35,7 +36,7 @@ interface SidebarProps {
   sheetConfig: GoogleSheetConfig;
   users: SystemUser[];
   activeUserId: string;
-  onSelectActiveUser: (userId: string) => void;
+  onSelectActiveUser?: (userId: string) => void;
   onOpenNewPayment: () => void;
   onOpenNewPatient: () => void;
   onOpenNewRefund: () => void;
@@ -45,7 +46,12 @@ interface SidebarProps {
   onSignInGoogle: () => void;
   onSignOutGoogle: () => void;
   onDenyNonSuperAdminSheetAccess: () => void;
+  onOpenProfileModal?: () => void;
+  onOpenLoginModal?: () => void;
+  onLogout?: () => void;
   branding?: AppBrandingConfig;
+  crmPendingCount?: number;
+  rolePrivileges?: RolePrivilege[];
 }
 
 const ROLE_DISPLAY: Record<
@@ -101,19 +107,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSignInGoogle,
   onSignOutGoogle,
   onDenyNonSuperAdminSheetAccess,
+  onOpenProfileModal,
+  onOpenLoginModal,
+  onLogout,
   branding,
+  crmPendingCount,
+  rolePrivileges,
 }) => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   const activeUser = users.find((u) => u.id === activeUserId) || users[0] || {
-    id: 'USR-101',
-    fullName: 'Dr. Jorge Apelencia',
-    email: 'jorge.apelencia@drbelleza.com',
+    id: 'USR-SUPER-EDGAR',
+    fullName: 'Edgar Morales',
+    email: 'edgar@morales.com',
     role: 'super_admin' as UserRole,
   };
 
   const isSuperAdmin = activeUser.role === 'super_admin';
-  const roleInfo = ROLE_DISPLAY[activeUser.role];
+  const isEdgar = activeUser.email.toLowerCase() === 'edgar@morales.com' || activeUser.isImmutable;
+  const roleInfo = ROLE_DISPLAY[activeUser.role] || ROLE_DISPLAY.super_admin;
+  const userPrivilege = rolePrivileges?.find((p) => p.role === activeUser.role);
 
   const handleTabClick = (tab: ActiveTab) => {
     setActiveTab(tab);
@@ -121,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const handleSheetClick = () => {
-    if (isSuperAdmin) {
+    if (userPrivilege ? userPrivilege.canAccessGoogleSheets : isSuperAdmin) {
       onOpenSheetSettings();
     } else {
       onDenyNonSuperAdminSheetAccess();
@@ -139,44 +152,64 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? Award
       : Sparkles;
 
-  const navItems: {
+  const allNavItems: {
     id: ActiveTab;
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     badge?: string | number;
+    allowed: boolean;
   }[] = [
     {
       id: 'dashboard',
       label: 'Dashboard General',
       icon: LayoutDashboard,
+      allowed: userPrivilege ? userPrivilege.canViewDashboard : true,
+    },
+    {
+      id: 'crm',
+      label: 'CRM',
+      icon: Kanban,
+      badge: crmPendingCount && crmPendingCount > 0 ? crmPendingCount : undefined,
+      allowed: userPrivilege ? userPrivilege.canManagePatients : true,
     },
     {
       id: 'patients',
       label: 'Pacientes & Cobranza',
       icon: Users,
+      allowed: userPrivilege ? userPrivilege.canManagePatients : true,
     },
     {
       id: 'payments',
       label: 'Historial de Abonos',
       icon: CreditCard,
+      allowed: userPrivilege ? (userPrivilege.canRegisterPayments || userPrivilege.canViewDashboard) : true,
     },
     {
       id: 'refunds',
       label: 'Reintegros',
       icon: Undo2,
+      allowed: userPrivilege ? userPrivilege.canRegisterRefunds : true,
     },
     {
       id: 'users',
       label: 'Gestión de Usuarios',
       icon: ShieldCheck,
       badge: users.length,
+      allowed: userPrivilege
+        ? userPrivilege.canManageUsers
+        : activeUser.role === 'super_admin' || activeUser.role === 'admin',
     },
     {
       id: 'settings',
       label: 'Configuración',
       icon: Settings,
+      allowed: userPrivilege
+        ? userPrivilege.canManageSettings
+        : activeUser.role === 'super_admin' || activeUser.role === 'admin',
     },
   ];
+
+  const navItems = allNavItems.filter((item) => item.allowed);
 
   return (
     <>
@@ -270,62 +303,77 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </div>
           <div className="grid grid-cols-2 gap-1.5">
-            <button
-              onClick={() => {
-                onOpenNewPayment();
-                setIsMobileOpen(false);
-              }}
-              className="flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 transition-colors cursor-pointer justify-start shadow-2xs"
-              title="Registrar Abono"
-            >
-              <DollarSign className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span className="truncate">+ Abono</span>
-            </button>
+            {(!userPrivilege || userPrivilege.canRegisterPayments) && (
+              <button
+                onClick={() => {
+                  onOpenNewPayment();
+                  setIsMobileOpen(false);
+                }}
+                className="flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 transition-colors cursor-pointer justify-start shadow-2xs"
+                title="Registrar Abono"
+              >
+                <DollarSign className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="truncate">+ Abono</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => {
-                onOpenNewPatient();
-                setIsMobileOpen(false);
-              }}
-              className="flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 transition-colors cursor-pointer justify-start shadow-2xs"
-              title="Nueva Paciente"
-            >
-              <UserPlus className="w-3.5 h-3.5 text-[#25D366] shrink-0" />
-              <span className="truncate">+ Paciente</span>
-            </button>
+            {(!userPrivilege || userPrivilege.canManagePatients) && (
+              <button
+                onClick={() => {
+                  onOpenNewPatient();
+                  setIsMobileOpen(false);
+                }}
+                className="flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 transition-colors cursor-pointer justify-start shadow-2xs"
+                title="Nueva Paciente"
+              >
+                <UserPlus className="w-3.5 h-3.5 text-[#25D366] shrink-0" />
+                <span className="truncate">+ Paciente</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => {
-                onOpenNewRefund();
-                setIsMobileOpen(false);
-              }}
-              className="flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 transition-colors cursor-pointer justify-start shadow-2xs"
-              title="Registrar Reintegro"
-            >
-              <Undo2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-              <span className="truncate">Reintegro</span>
-            </button>
+            {(!userPrivilege || userPrivilege.canRegisterRefunds) && (
+              <button
+                onClick={() => {
+                  onOpenNewRefund();
+                  setIsMobileOpen(false);
+                }}
+                className="flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 transition-colors cursor-pointer justify-start shadow-2xs"
+                title="Registrar Reintegro"
+              >
+                <Undo2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                <span className="truncate">Reintegro</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => {
-                onOpenMonthlyReport();
-                setIsMobileOpen(false);
-              }}
-              className="flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 transition-colors cursor-pointer justify-start shadow-2xs"
-              title="Reporte Mensual en PDF"
-            >
-              <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-              <span className="truncate">Reporte PDF</span>
-            </button>
+            {(!userPrivilege || userPrivilege.canExportReports) && (
+              <button
+                onClick={() => {
+                  onOpenMonthlyReport();
+                  setIsMobileOpen(false);
+                }}
+                className="flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 transition-colors cursor-pointer justify-start shadow-2xs"
+                title="Reporte Mensual en PDF"
+              >
+                <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span className="truncate">Reporte PDF</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Current User Session & Role Switcher Card */}
-        <div className="p-2.5 mx-3 mt-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-            <span className="font-bold uppercase tracking-wider text-[9px] text-slate-400">
-              Perfil en Sesión
-            </span>
+        {/* Current User Session Card */}
+        <div className="p-2.5 mx-3 mt-2.5 rounded-xl bg-slate-50 border border-slate-200/80 transition-colors">
+          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
+            <div className="flex items-center space-x-1">
+              <span className="font-bold uppercase tracking-wider text-[9px] text-slate-400">
+                Sesión Activa
+              </span>
+              {isEdgar && (
+                <span className="text-[8px] bg-purple-100 text-purple-800 font-extrabold px-1 rounded border border-purple-200" title="Super Administrador Inmutable">
+                  ★ Inmutable
+                </span>
+              )}
+            </div>
             <span
               className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${roleInfo.badgeColor}`}
             >
@@ -333,8 +381,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <div className="w-7 h-7 rounded-lg bg-[#25D366] text-white font-bold text-[11px] flex items-center justify-center shrink-0 shadow-2xs">
+          <div
+            onClick={onOpenProfileModal}
+            className="flex items-center space-x-2 p-1 rounded-lg hover:bg-white transition-colors cursor-pointer group"
+            title="Ver perfil de usuario en la esquina superior derecha"
+          >
+            <div className="w-7 h-7 rounded-lg bg-emerald-600 group-hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center justify-center shrink-0 shadow-2xs transition-colors">
               {activeUser.fullName
                 .split(' ')
                 .map((n) => n[0])
@@ -342,7 +394,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 .join('')}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-bold text-slate-900 truncate">
+              <div className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-700">
                 {activeUser.fullName}
               </div>
               <div className="text-[10px] text-slate-500 truncate">
@@ -351,20 +403,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          {/* Quick Switch Profile Select */}
-          <div className="mt-2 pt-1.5 border-t border-slate-200/80 flex items-center space-x-1.5">
-            <ArrowRightLeft className="w-3 h-3 text-slate-400 shrink-0" />
-            <select
-              value={activeUserId}
-              onChange={(e) => onSelectActiveUser(e.target.value)}
-              className="w-full text-[10px] bg-white text-slate-700 py-1 px-1.5 rounded-md border border-slate-300 focus:outline-hidden focus:ring-1 focus:ring-[#25D366] cursor-pointer shadow-2xs"
-            >
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.fullName} ({ROLE_DISPLAY[u.role]?.shortLabel || u.role})
-                </option>
-              ))}
-            </select>
+          {/* Quick Actions Profile & Logout */}
+          <div className="mt-2 pt-1.5 border-t border-slate-200/80">
+            <div className="flex items-center space-x-1.5">
+              <button
+                type="button"
+                onClick={onOpenProfileModal}
+                className="flex-1 text-[10px] font-semibold py-1 px-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors text-center cursor-pointer shadow-2xs"
+              >
+                Mi Perfil
+              </button>
+              {(onLogout || onOpenLoginModal) && (
+                <button
+                  type="button"
+                  onClick={onLogout || onOpenLoginModal}
+                  className="flex-1 text-[10px] font-semibold py-1 px-1.5 rounded-md bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 transition-colors text-center cursor-pointer shadow-2xs flex items-center justify-center space-x-1"
+                >
+                  <LogOut className="w-3 h-3 text-rose-600 shrink-0" />
+                  <span>Cerrar Sesión</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -423,7 +482,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="text-[11px] font-bold text-slate-900">Google Sheets</span>
               </div>
               {isSuperAdmin ? (
-                sheetConfig.spreadsheetId ? (
+                (sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl) ? (
                   <span className="flex items-center text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
                     <CheckCircle2 className="w-2.5 h-2.5 mr-0.5 text-emerald-600" />
                     Conectado
@@ -444,7 +503,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <p className="text-[10px] text-slate-500 leading-tight mb-2.5">
               {isSuperAdmin
-                ? sheetConfig.spreadsheetId
+                ? (sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl)
                   ? 'Base de datos sincronizada en tiempo real.'
                   : 'Vincule una hoja para sincronización en la nube.'
                 : 'Configuración exclusiva para el perfil Super Administrador.'}
@@ -463,7 +522,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span>{isSuperAdmin ? 'Configuración Sheets' : 'Acceso Restringido'}</span>
               </button>
 
-              {isSuperAdmin && sheetConfig.spreadsheetId && (
+              {isSuperAdmin && (sheetConfig.spreadsheetId || sheetConfig.gasDeploymentUrl) && (
                 <button
                   onClick={onManualSync}
                   disabled={sheetConfig.isSyncing}

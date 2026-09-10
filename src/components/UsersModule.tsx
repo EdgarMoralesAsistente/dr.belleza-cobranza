@@ -20,7 +20,7 @@ import { UserModal } from './UserModal';
 interface UsersModuleProps {
   users: SystemUser[];
   activeUserId: string;
-  onSelectActiveUser: (userId: string) => void;
+  onSelectActiveUser?: (userId: string) => void;
   onSaveUser: (user: Omit<SystemUser, 'id' | 'createdAt'>, id?: string) => void;
   onDeleteUser: (id: string) => void;
   onToggleUserStatus: (id: string) => void;
@@ -80,7 +80,15 @@ export const UsersModule: React.FC<UsersModuleProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<SystemUser | null>(null);
 
-  const activeUser = users.find((u) => u.id === activeUserId) || users[0];
+  const activeUser = users.find((u) => u.id === activeUserId) || users[0] || {
+    id: 'USR-SUPER-EDGAR',
+    fullName: 'Edgar Morales',
+    email: 'edgar@morales.com',
+    role: 'super_admin' as const,
+    isActive: true,
+    createdAt: '2026-01-15',
+    isImmutable: true,
+  };
 
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
@@ -105,7 +113,22 @@ export const UsersModule: React.FC<UsersModuleProps> = ({
     setIsModalOpen(true);
   };
 
+  const handleToggleStatus = (user: SystemUser) => {
+    const isEdgar = user.isImmutable || user.email.toLowerCase() === 'edgar@morales.com' || user.id === 'USR-SUPER-EDGAR';
+    if (isEdgar) {
+      alert('El Super Administrador Edgar Morales debe permanecer siempre activo para garantizar la operatividad y administración del sistema.');
+      return;
+    }
+    onToggleUserStatus(user.id);
+  };
+
   const handleDelete = (user: SystemUser) => {
+    const isEdgar = user.isImmutable || user.email.toLowerCase() === 'edgar@morales.com' || user.id === 'USR-SUPER-EDGAR';
+    if (isEdgar) {
+      alert('ACCESO DENEGADO: El usuario Super Administrador Edgar Morales está protegido permanentemente por directiva del sistema y no puede ser eliminado bajo ninguna circunstancia.');
+      return;
+    }
+
     if (user.role === 'super_admin' && superAdminCount <= 1) {
       alert('No es posible eliminar al único Super Administrador del sistema.');
       return;
@@ -233,7 +256,7 @@ export const UsersModule: React.FC<UsersModuleProps> = ({
         </div>
       </div>
 
-      {/* Simulator Notice Box: Active Profile Switcher */}
+      {/* Security Status Box: Active Profile Info */}
       <div className="bg-slate-900 text-slate-100 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 rounded-lg bg-amber-400 text-slate-950 font-bold flex items-center justify-center text-xs">
@@ -241,13 +264,13 @@ export const UsersModule: React.FC<UsersModuleProps> = ({
           </div>
           <div>
             <div className="text-xs font-semibold text-white flex items-center space-x-2">
-              <span>Perfil Activo en Sesión Actual:</span>
+              <span>Perfil Activo en Sesión:</span>
               <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide ${ROLE_META[activeUser.role].badgeClass}`}>
                 {ROLE_META[activeUser.role].label}
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Usuario: <strong className="text-slate-200">{activeUser.fullName}</strong> ({activeUser.email}).
+              Usuario en sesión: <strong className="text-slate-200">{activeUser.fullName}</strong> ({activeUser.email}).
               {activeUser.role === 'super_admin' ? (
                 <span className="text-purple-300 ml-1 font-medium">
                   Tiene permiso habilitado para conectar y sincronizar Google Sheets.
@@ -261,19 +284,9 @@ export const UsersModule: React.FC<UsersModuleProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 w-full sm:w-auto">
-          <span className="text-xs text-slate-300 whitespace-nowrap">Simular otro usuario:</span>
-          <select
-            value={activeUserId}
-            onChange={(e) => onSelectActiveUser(e.target.value)}
-            className="text-xs bg-slate-800 text-white font-medium px-3 py-1.5 rounded-lg border border-slate-700 focus:outline-hidden focus:ring-2 focus:ring-amber-400 cursor-pointer w-full sm:w-auto"
-          >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.fullName} ({ROLE_META[u.role].label})
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center space-x-2 text-xs text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
+          <Lock className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Acceso restringido por credenciales individuales</span>
         </div>
       </div>
 
@@ -334,12 +347,13 @@ export const UsersModule: React.FC<UsersModuleProps> = ({
                 filteredUsers.map((user) => {
                   const meta = ROLE_META[user.role];
                   const isCurrent = user.id === activeUserId;
+                  const isEdgarImmutable = user.isImmutable || user.email.toLowerCase() === 'edgar@morales.com' || user.id === 'USR-SUPER-EDGAR';
 
                   return (
                     <tr
                       key={user.id}
                       className={`hover:bg-slate-50/70 transition-colors ${
-                        isCurrent ? 'bg-amber-50/40' : ''
+                        isCurrent ? 'bg-emerald-50/30' : isEdgarImmutable ? 'bg-purple-50/20' : ''
                       }`}
                     >
                       {/* Name & ID */}
@@ -358,12 +372,22 @@ export const UsersModule: React.FC<UsersModuleProps> = ({
                             <div className="font-semibold text-slate-900 flex items-center space-x-1.5">
                               <span>{user.fullName}</span>
                               {isCurrent && (
-                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
                                   En Sesión
                                 </span>
                               )}
+                              {isEdgarImmutable && (
+                                <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-purple-200 flex items-center space-x-0.5" title="Super Administrador Inmutable. No puede ser eliminado nunca.">
+                                  <Shield className="w-2.5 h-2.5 text-purple-600" />
+                                  <span>Inmutable</span>
+                                </span>
+                              )}
                             </div>
-                            <div className="text-[11px] text-slate-500">{user.email}</div>
+                            <div className="text-[11px] text-slate-500 font-mono flex items-center space-x-2">
+                              <span>{user.email}</span>
+                              <span className="text-slate-300">•</span>
+                              <span className="text-slate-400">Clave: {user.password ? '••••••••' : '123456'}</span>
+                            </div>
                             {user.notes && (
                               <div className="text-[10px] text-slate-400 mt-0.5 italic max-w-xs truncate">
                                 {user.notes}
@@ -411,13 +435,16 @@ export const UsersModule: React.FC<UsersModuleProps> = ({
                       {/* Status */}
                       <td className="px-5 py-4 text-center">
                         <button
-                          onClick={() => onToggleUserStatus(user.id)}
-                          className={`inline-flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold cursor-pointer transition-colors ${
-                            user.isActive
-                              ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                              : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                          onClick={() => handleToggleStatus(user)}
+                          disabled={isEdgarImmutable}
+                          className={`inline-flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold transition-colors ${
+                            isEdgarImmutable
+                              ? 'bg-purple-50 text-purple-700 cursor-not-allowed border border-purple-200'
+                              : user.isActive
+                              ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 cursor-pointer'
+                              : 'bg-slate-100 text-slate-500 hover:bg-slate-200 cursor-pointer'
                           }`}
-                          title="Haga clic para alternar estado activo/inactivo"
+                          title={isEdgarImmutable ? 'El Super Administrador permanente debe permanecer siempre activo' : 'Haga clic para alternar estado'}
                         >
                           {user.isActive ? (
                             <>
@@ -436,31 +463,30 @@ export const UsersModule: React.FC<UsersModuleProps> = ({
                       {/* Actions */}
                       <td className="px-5 py-4 text-right">
                         <div className="flex items-center justify-end space-x-1.5">
-                          {!isCurrent && (
-                            <button
-                              onClick={() => onSelectActiveUser(user.id)}
-                              className="px-2 py-1 rounded text-[11px] font-medium bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-800 transition-colors cursor-pointer flex items-center space-x-1"
-                              title="Activar este perfil para simular su vista y permisos"
-                            >
-                              <ArrowRightLeft className="w-3 h-3" />
-                              <span className="hidden sm:inline">Usar</span>
-                            </button>
-                          )}
                           <button
                             onClick={() => handleOpenEdit(user)}
-                            className="p-1.5 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                            className="p-1.5 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
                             title="Editar usuario"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            onClick={() => handleDelete(user)}
-                            disabled={user.role === 'super_admin' && superAdminCount <= 1}
-                            className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                            title="Eliminar usuario"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {isEdgarImmutable ? (
+                            <span
+                              className="p-1.5 rounded text-purple-600 bg-purple-50 border border-purple-200 cursor-not-allowed"
+                              title="Este usuario Super Administrador está protegido permanentemente y no puede ser borrado jamás."
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleDelete(user)}
+                              disabled={user.role === 'super_admin' && superAdminCount <= 1}
+                              className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                              title="Eliminar usuario"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

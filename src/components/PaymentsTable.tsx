@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Search, DollarSign, MessageCircle, Calendar, CreditCard, Tag } from 'lucide-react';
+import { Search, DollarSign, MessageCircle, Calendar, CreditCard, Tag, FileDown } from 'lucide-react';
 import { Payment, Patient } from '../types';
+import { downloadReceiptPDF } from '../services/pdfReport';
 
 interface PaymentsTableProps {
   payments: Payment[];
@@ -147,19 +148,39 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({
                       {p.registeredBy || 'Secretaría'}
                     </td>
                     <td className="py-3 px-4 text-center">
-                      <button
-                        onClick={() => {
-                          if (patient) {
-                            onOpenWhatsAppReceipt(patient, p);
-                          }
-                        }}
-                        disabled={!patient}
-                        className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-colors disabled:opacity-40"
-                        title="Enviar comprobante a la paciente por WhatsApp"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        <span>Recibo</span>
-                      </button>
+                      <div className="flex items-center justify-center space-x-1.5">
+                        <button
+                          onClick={() => {
+                            if (patient) {
+                              downloadReceiptPDF({
+                                patient,
+                                payment: p,
+                                type: 'payment',
+                              });
+                            }
+                          }}
+                          disabled={!patient}
+                          className="inline-flex items-center space-x-1 px-2 py-1 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-emerald-100 hover:text-emerald-800 transition-colors disabled:opacity-40 cursor-pointer"
+                          title="Descargar Recibo en PDF"
+                        >
+                          <FileDown className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>PDF</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (patient) {
+                              onOpenWhatsAppReceipt(patient, p);
+                            }
+                          }}
+                          disabled={!patient}
+                          className="inline-flex items-center space-x-1 px-2 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                          title="Enviar comprobante a la paciente por WhatsApp"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>WhatsApp</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

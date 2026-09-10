@@ -23,6 +23,11 @@ import {
   SlidersHorizontal,
   ChevronRight,
   ExternalLink,
+  CreditCard,
+  CalendarClock,
+  Percent,
+  Calculator,
+  Layers,
 } from 'lucide-react';
 import {
   SurgicalProcedure,
@@ -31,6 +36,8 @@ import {
   RolePrivilege,
   UserRole,
   SystemUser,
+  FinancingPlan,
+  PaymentFrequency,
 } from '../types';
 
 interface SettingsModuleProps {
@@ -42,11 +49,13 @@ interface SettingsModuleProps {
   onSaveBranding: (branding: AppBrandingConfig) => void;
   rolePrivileges: RolePrivilege[];
   onSaveRolePrivileges: (privileges: RolePrivilege[]) => void;
+  financingPlans: FinancingPlan[];
+  onSaveFinancingPlans: (plans: FinancingPlan[]) => void;
   activeUser: SystemUser;
   onNavigateToUsers?: () => void;
 }
 
-type SettingsTab = 'procedures' | 'coupons' | 'roles' | 'branding';
+type SettingsTab = 'procedures' | 'financing' | 'coupons' | 'roles' | 'branding';
 
 export const SettingsModule: React.FC<SettingsModuleProps> = ({
   procedures,
@@ -57,6 +66,8 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
   onSaveBranding,
   rolePrivileges,
   onSaveRolePrivileges,
+  financingPlans,
+  onSaveFinancingPlans,
   activeUser,
   onNavigateToUsers,
 }) => {
@@ -273,6 +284,145 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
     }
   };
 
+  // --- FINANCING PLANS STATE ---
+  const [financingSearch, setFinancingSearch] = useState('');
+  const [financingFrequencyFilter, setFinancingFrequencyFilter] = useState<string>('all');
+  const [isFinancingModalOpen, setIsFinancingModalOpen] = useState(false);
+  const [editingFinancingPlan, setEditingFinancingPlan] = useState<FinancingPlan | null>(null);
+
+  // Form state for financing plan
+  const [fpName, setFpName] = useState('');
+  const [fpMonths, setFpMonths] = useState<number>(12);
+  const [fpFrequency, setFpFrequency] = useState<PaymentFrequency>('Mensual');
+  const [fpInstallmentsCount, setFpInstallmentsCount] = useState<number>(12);
+  const [fpInterestRate, setFpInterestRate] = useState<number | ''>(0);
+  const [fpDownPaymentPercent, setFpDownPaymentPercent] = useState<number | ''>(20);
+  const [fpDescription, setFpDescription] = useState('');
+  const [fpIsActive, setFpIsActive] = useState(true);
+
+  // Helper to calculate default installments based on months and frequency
+  const calculateDefaultInstallments = (months: number, freq: PaymentFrequency) => {
+    if (freq === 'Semanal') return Math.round(months * 4.33);
+    if (freq === 'Quincenal') return months * 2;
+    return months; // Mensual
+  };
+
+  const handleMonthsChange = (newMonths: number) => {
+    setFpMonths(newMonths);
+    setFpInstallmentsCount(calculateDefaultInstallments(newMonths, fpFrequency));
+  };
+
+  const handleFrequencyChange = (newFreq: PaymentFrequency) => {
+    setFpFrequency(newFreq);
+    setFpInstallmentsCount(calculateDefaultInstallments(fpMonths, newFreq));
+  };
+
+  const openNewFinancingPlanModal = () => {
+    setEditingFinancingPlan(null);
+    setFpName('');
+    setFpMonths(12);
+    setFpFrequency('Mensual');
+    setFpInstallmentsCount(12);
+    setFpInterestRate(0);
+    setFpDownPaymentPercent(20);
+    setFpDescription('');
+    setFpIsActive(true);
+    setIsFinancingModalOpen(true);
+  };
+
+  const openEditFinancingPlanModal = (plan: FinancingPlan) => {
+    setEditingFinancingPlan(plan);
+    setFpName(plan.name);
+    setFpMonths(plan.months);
+    setFpFrequency(plan.frequency);
+    setFpInstallmentsCount(plan.installmentsCount);
+    setFpInterestRate(plan.interestRatePercent);
+    setFpDownPaymentPercent(plan.downPaymentPercent);
+    setFpDescription(plan.description || '');
+    setFpIsActive(plan.isActive);
+    setIsFinancingModalOpen(true);
+  };
+
+  const handleDuplicateFinancingPlan = (plan: FinancingPlan) => {
+    const newPlan: FinancingPlan = {
+      ...plan,
+      id: `PLAN-${Date.now().toString().slice(-4)}`,
+      name: `${plan.name} (Copia)`,
+      isActive: true,
+    };
+    onSaveFinancingPlans([...financingPlans, newPlan]);
+    showToast(`Plan "${newPlan.name}" duplicado con éxito`);
+  };
+
+  const handleSaveFinancingPlan = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fpName.trim()) {
+      alert('Por favor ingrese un nombre descriptivo para el plan de financiamiento.');
+      return;
+    }
+    if (!fpMonths || fpMonths <= 0) {
+      alert('Por favor especifique una duración en meses válida.');
+      return;
+    }
+    if (!fpInstallmentsCount || fpInstallmentsCount <= 0) {
+      alert('Por favor especifique una cantidad de cuotas válida.');
+      return;
+    }
+
+    const interest = Number(fpInterestRate) || 0;
+    const downPayment = Number(fpDownPaymentPercent) || 0;
+
+    if (editingFinancingPlan) {
+      const updated = financingPlans.map((p) =>
+        p.id === editingFinancingPlan.id
+          ? {
+              ...p,
+              name: fpName.trim(),
+              months: Number(fpMonths),
+              frequency: fpFrequency,
+              installmentsCount: Number(fpInstallmentsCount),
+              interestRatePercent: interest,
+              downPaymentPercent: downPayment,
+              description: fpDescription.trim(),
+              isActive: fpIsActive,
+            }
+          : p
+      );
+      onSaveFinancingPlans(updated);
+      showToast('Plan de financiamiento actualizado correctamente');
+    } else {
+      const newPlan: FinancingPlan = {
+        id: `PLAN-${Date.now().toString().slice(-4)}`,
+        name: fpName.trim(),
+        months: Number(fpMonths),
+        frequency: fpFrequency,
+        installmentsCount: Number(fpInstallmentsCount),
+        interestRatePercent: interest,
+        downPaymentPercent: downPayment,
+        description: fpDescription.trim(),
+        isActive: fpIsActive,
+      };
+      onSaveFinancingPlans([...financingPlans, newPlan]);
+      showToast('Nuevo plan de financiamiento creado');
+    }
+    setIsFinancingModalOpen(false);
+  };
+
+  const handleToggleFinancingPlanActive = (id: string) => {
+    const updated = financingPlans.map((p) =>
+      p.id === id ? { ...p, isActive: !p.isActive } : p
+    );
+    onSaveFinancingPlans(updated);
+    showToast('Estado del plan de financiamiento modificado');
+  };
+
+  const handleDeleteFinancingPlan = (id: string, name: string) => {
+    if (confirm(`¿Desea eliminar el plan de financiamiento "${name}"?`)) {
+      onSaveFinancingPlans(financingPlans.filter((p) => p.id !== id));
+      showToast('Plan de financiamiento eliminado');
+    }
+  };
+
   // --- ROLES & PRIVILEGES STATE ---
   const handleTogglePrivilege = (
     role: UserRole,
@@ -387,6 +537,25 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
             }`}
           >
             {procedures.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('financing')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeTab === 'financing'
+              ? 'bg-[#25D366] text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200'
+          }`}
+        >
+          <CreditCard className="w-4 h-4" />
+          <span>Planes Financieros</span>
+          <span
+            className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+              activeTab === 'financing' ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            {financingPlans.length}
           </span>
         </button>
 
@@ -603,7 +772,268 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
         </div>
       )}
 
-      {/* TAB 2: COUPONS */}
+      {/* TAB: FINANCING PLANS */}
+      {activeTab === 'financing' && (
+        <div className="space-y-4">
+          {/* Top Banner */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center space-x-2">
+                <CreditCard className="w-5 h-5 text-[#25D366]" />
+                <h2 className="text-sm font-bold text-slate-900">
+                  Planes de Financiamiento & Modalidades de Pago
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  Conectado con Registro
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Configura los planes de financiamiento para las pacientes (6, 12, 24 meses, etc.) y su periodicidad (Semanal, Quincenal o Mensual).
+              </p>
+            </div>
+            <button
+              onClick={openNewFinancingPlanModal}
+              className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer transition-colors shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nuevo Plan Financiero</span>
+            </button>
+          </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                Total Planes
+              </span>
+              <span className="text-xl font-bold text-slate-900 mt-0.5 block">
+                {financingPlans.length}
+              </span>
+              <span className="text-[10px] text-slate-500">
+                {financingPlans.filter((p) => p.isActive).length} activos para selección
+              </span>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider block">
+                Periodicidades
+              </span>
+              <span className="text-xl font-bold text-emerald-700 mt-0.5 block">
+                3 Tipos
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Semanal • Quincenal • Mensual
+              </span>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[11px] font-semibold text-blue-700 uppercase tracking-wider block">
+                Plazos Máximos
+              </span>
+              <span className="text-xl font-bold text-blue-700 mt-0.5 block">
+                Hasta 24m
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Planes flexibles de 1 a 24 meses
+              </span>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[11px] font-semibold text-purple-700 uppercase tracking-wider block">
+                Tasa 0% Sin Interés
+              </span>
+              <span className="text-xl font-bold text-purple-700 mt-0.5 block">
+                {financingPlans.filter((p) => p.interestRatePercent === 0).length} Planes
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Sin costo financiero extra
+              </span>
+            </div>
+          </div>
+
+          {/* Search & Filter Controls */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar plan financiero o condiciones..."
+                value={financingSearch}
+                onChange={(e) => setFinancingSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/30 focus:border-[#25D366]"
+              />
+            </div>
+
+            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
+              <span className="text-xs text-slate-400 font-semibold mr-1">Frecuencia:</span>
+              {(['all', 'Semanal', 'Quincenal', 'Mensual'] as const).map((freq) => (
+                <button
+                  key={freq}
+                  onClick={() => setFinancingFrequencyFilter(freq)}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    financingFrequencyFilter === freq
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {freq === 'all' ? 'Todas' : freq}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Financing Plans Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {financingPlans
+              .filter((plan) => {
+                const matchQuery =
+                  plan.name.toLowerCase().includes(financingSearch.toLowerCase()) ||
+                  (plan.description &&
+                    plan.description.toLowerCase().includes(financingSearch.toLowerCase()));
+                if (!matchQuery) return false;
+                if (
+                  financingFrequencyFilter !== 'all' &&
+                  plan.frequency !== financingFrequencyFilter
+                )
+                  return false;
+                return true;
+              })
+              .map((plan) => {
+                // Simulation with $3000 USD
+                const sampleCost = 3000;
+                const sampleDown = (sampleCost * plan.downPaymentPercent) / 100;
+                const sampleFinanced = (sampleCost - sampleDown) * (1 + plan.interestRatePercent / 100);
+                const sampleInstallment = plan.installmentsCount > 0 ? sampleFinanced / plan.installmentsCount : sampleFinanced;
+
+                return (
+                  <div
+                    key={plan.id}
+                    className={`bg-white rounded-2xl border p-4 shadow-xs transition-all flex flex-col justify-between ${
+                      plan.isActive ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-slate-50/50'
+                    }`}
+                  >
+                    <div>
+                      {/* Card Header */}
+                      <div className="flex items-start justify-between gap-2 mb-2.5">
+                        <div>
+                          <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">
+                            {plan.id}
+                          </span>
+                          <h3 className="text-sm font-bold text-slate-900">{plan.name}</h3>
+                        </div>
+
+                        <div className="flex items-center space-x-1 shrink-0">
+                          <button
+                            onClick={() => handleToggleFinancingPlanActive(plan.id)}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${
+                              plan.isActive
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                            }`}
+                          >
+                            {plan.isActive ? 'Activo' : 'Pausado'}
+                          </button>
+                          <button
+                            onClick={() => openEditFinancingPlanModal(plan)}
+                            className="p-1 text-slate-400 hover:text-slate-800 rounded hover:bg-slate-100 cursor-pointer"
+                            title="Editar plan"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDuplicateFinancingPlan(plan)}
+                            className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50 cursor-pointer"
+                            title="Duplicar plan"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteFinancingPlan(plan.id, plan.name)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 cursor-pointer"
+                            title="Eliminar plan"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Badges Matrix */}
+                      <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                        <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-slate-900 text-white flex items-center space-x-1">
+                          <CalendarClock className="w-3 h-3 text-[#25D366]" />
+                          <span>{plan.months} Meses</span>
+                        </span>
+
+                        <span
+                          className={`px-2 py-0.5 rounded-lg text-[11px] font-bold border ${
+                            plan.frequency === 'Semanal'
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : plan.frequency === 'Quincenal'
+                              ? 'bg-blue-50 text-blue-800 border-blue-200'
+                              : 'bg-purple-50 text-purple-800 border-purple-200'
+                          }`}
+                        >
+                          {plan.frequency} ({plan.installmentsCount} cuotas)
+                        </span>
+
+                        <span
+                          className={`px-2 py-0.5 rounded-lg text-[11px] font-bold border ${
+                            plan.interestRatePercent === 0
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
+                          }`}
+                        >
+                          {plan.interestRatePercent === 0 ? '0% Sin Interés' : `+${plan.interestRatePercent}% Recargo`}
+                        </span>
+
+                        <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                          Seña: {plan.downPaymentPercent}%
+                        </span>
+                      </div>
+
+                      {/* Description */}
+                      <p className="text-xs text-slate-600 font-medium mb-3 min-h-[36px] line-clamp-2">
+                        {plan.description || 'Plan de pago financiado según condiciones acordadas en consulta.'}
+                      </p>
+                    </div>
+
+                    {/* Simulation Box */}
+                    <div className="pt-3 border-t border-slate-100 bg-slate-50/80 -mx-4 -mb-4 p-3.5 rounded-b-2xl">
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                        <span className="font-semibold text-slate-600">Simulación $3,000 USD:</span>
+                        <span>Seña: <strong>${sampleDown.toLocaleString()}</strong></span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Cuota estimada:</span>
+                        <span className="text-sm font-extrabold text-[#25D366]">
+                          ${Math.round(sampleInstallment).toLocaleString()} / {plan.frequency.toLowerCase()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          {financingPlans.length === 0 && (
+            <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center space-y-3">
+              <CreditCard className="w-10 h-10 text-slate-300 mx-auto" />
+              <p className="text-sm text-slate-600 font-medium">
+                No hay planes de financiamiento configurados aún.
+              </p>
+              <button
+                onClick={openNewFinancingPlanModal}
+                className="px-4 py-2 rounded-xl bg-[#25D366] text-white text-xs font-bold shadow-xs cursor-pointer inline-flex items-center space-x-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Crear Primer Plan</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: COUPONS */}
       {activeTab === 'coupons' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1460,6 +1890,228 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                   className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold shadow-xs cursor-pointer"
                 >
                   {editingCoupon ? 'Guardar Cambios' : 'Crear Cupón'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CREATE / EDIT FINANCING PLAN */}
+      {isFinancingModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="relative bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden my-6">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-lg bg-[#25D366] text-white flex items-center justify-center shadow-2xs">
+                  <CreditCard className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {editingFinancingPlan ? 'Editar Plan Financiero' : 'Nuevo Plan de Financiamiento'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Configuración de plazos, periodicidad y cálculo de cuotas
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsFinancingModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveFinancingPlan} className="p-6 space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Nombre del Plan Financiero *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={fpName}
+                  onChange={(e) => setFpName(e.target.value)}
+                  placeholder="Ej. Plan 12 Meses - Quincenal (Sin Recargo)"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-medium focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/30 focus:border-[#25D366]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Plazo en Meses *
+                  </label>
+                  <select
+                    value={fpMonths}
+                    onChange={(e) => handleMonthsChange(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-semibold focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/30"
+                  >
+                    <option value={1}>1 Mes (Contado / Inmediato)</option>
+                    <option value={3}>3 Meses</option>
+                    <option value={6}>6 Meses</option>
+                    <option value={9}>9 Meses</option>
+                    <option value={12}>12 Meses</option>
+                    <option value={18}>18 Meses</option>
+                    <option value={24}>24 Meses</option>
+                    <option value={36}>36 Meses</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Periodicidad de Pago *
+                  </label>
+                  <select
+                    value={fpFrequency}
+                    onChange={(e) => handleFrequencyChange(e.target.value as PaymentFrequency)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-semibold focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/30"
+                  >
+                    <option value="Semanal">Semanal (cada 7 días)</option>
+                    <option value="Quincenal">Quincenal (cada 15 días)</option>
+                    <option value="Mensual">Mensual (cada 30 días)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Cantidad Cuotas
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={fpInstallmentsCount}
+                    onChange={(e) => setFpInstallmentsCount(Number(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Auto: {fpFrequency}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Recargo / Interés (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.5"
+                    value={fpInterestRate}
+                    onChange={(e) =>
+                      setFpInterestRate(e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                    placeholder="0"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    0% = Sin interés
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Seña Mínima (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={fpDownPaymentPercent}
+                    onChange={(e) =>
+                      setFpDownPaymentPercent(e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                    placeholder="20"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Anticipo sugerido
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Descripción / Condiciones para la Paciente
+                </label>
+                <textarea
+                  rows={2}
+                  value={fpDescription}
+                  onChange={(e) => setFpDescription(e.target.value)}
+                  placeholder="Ej. Plan en cuotas fijas quincenales acordadas con la paciente. Se congela el valor con el 20% de anticipo."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/30 focus:border-[#25D366]"
+                />
+              </div>
+
+              {/* Dynamic Simulation Preview Card */}
+              {(() => {
+                const sampleCost = 3000;
+                const downPercent = Number(fpDownPaymentPercent) || 0;
+                const interestPercent = Number(fpInterestRate) || 0;
+                const sampleDown = (sampleCost * downPercent) / 100;
+                const sampleFinanced = (sampleCost - sampleDown) * (1 + interestPercent / 100);
+                const count = Number(fpInstallmentsCount) || 1;
+                const sampleInstallment = count > 0 ? sampleFinanced / count : sampleFinanced;
+
+                return (
+                  <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200/80 space-y-1">
+                    <div className="flex items-center justify-between font-bold text-emerald-900">
+                      <span className="flex items-center">
+                        <Calculator className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                        Simulador de Cuota (Ejemplo Presupuesto $3,000 USD)
+                      </span>
+                      <span>{fpFrequency}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-600 pt-1">
+                      <div>
+                        <span className="text-slate-400 block">Anticipo / Seña ({downPercent}%):</span>
+                        <strong className="text-slate-800">${sampleDown.toLocaleString()} USD</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Saldo Financiar:</span>
+                        <strong className="text-slate-800">${Math.round(sampleFinanced).toLocaleString()} USD</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Valor por Cuota:</span>
+                        <strong className="text-emerald-700 text-xs">
+                          ${Math.round(sampleInstallment).toLocaleString()} / {fpFrequency.toLowerCase()}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="flex items-center space-x-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="fpIsActive"
+                  checked={fpIsActive}
+                  onChange={(e) => setFpIsActive(e.target.checked)}
+                  className="rounded text-[#25D366] focus:ring-[#25D366] w-4 h-4 cursor-pointer"
+                />
+                <label htmlFor="fpIsActive" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                  Habilitar este plan financiero para seleccionarlo en el registro de pacientes
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsFinancingModalOpen(false)}
+                  className="px-4 py-2 font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold shadow-xs cursor-pointer"
+                >
+                  {editingFinancingPlan ? 'Guardar Cambios' : 'Crear Plan Financiero'}
                 </button>
               </div>
             </form>
