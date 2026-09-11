@@ -21,8 +21,9 @@ provider.setCustomParameters({
   prompt: 'select_account',
 });
 
-// In-memory token storage (MANDATORY per Workspace Skill guidelines)
-let cachedAccessToken: string | null = null;
+// Session & in-memory token storage
+let cachedAccessToken: string | null =
+  typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('google_access_token') : null;
 let isSigningIn = false;
 
 export const initAuth = (
@@ -31,6 +32,9 @@ export const initAuth = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
+      if (!cachedAccessToken && typeof sessionStorage !== 'undefined') {
+        cachedAccessToken = sessionStorage.getItem('google_access_token');
+      }
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
@@ -39,6 +43,9 @@ export const initAuth = (
       }
     } else {
       cachedAccessToken = null;
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('google_access_token');
+      }
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -54,6 +61,9 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = credential.accessToken;
+    if (typeof sessionStorage !== 'undefined' && cachedAccessToken) {
+      sessionStorage.setItem('google_access_token', cachedAccessToken);
+    }
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: unknown) {
     console.error('Error al iniciar sesión con Google:', error);
@@ -64,14 +74,27 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
+  if (!cachedAccessToken && typeof sessionStorage !== 'undefined') {
+    cachedAccessToken = sessionStorage.getItem('google_access_token');
+  }
   return cachedAccessToken;
 };
 
 export const setCachedAccessToken = (token: string | null) => {
   cachedAccessToken = token;
+  if (typeof sessionStorage !== 'undefined') {
+    if (token) {
+      sessionStorage.setItem('google_access_token', token);
+    } else {
+      sessionStorage.removeItem('google_access_token');
+    }
+  }
 };
 
 export const logOutGoogle = async () => {
   await signOut(auth);
   cachedAccessToken = null;
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem('google_access_token');
+  }
 };

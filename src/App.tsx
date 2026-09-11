@@ -73,8 +73,13 @@ import {
   syncAllToGoogleSheet,
   fetchAllFromGoogleSheet,
   appendPatientToGoogleSheet,
+  updatePatientInGoogleSheet,
+  deletePatientFromGoogleSheet,
   appendPaymentToGoogleSheet,
   appendRefundToGoogleSheet,
+  appendUserToGoogleSheet,
+  updateUserInGoogleSheet,
+  deleteUserInGoogleSheet,
 } from './services/googleSheets';
 import {
   testGasConnection,
@@ -82,7 +87,11 @@ import {
   savePatientToGas,
   deletePatientFromGas,
   savePaymentToGas,
+  deletePaymentFromGas,
   saveRefundToGas,
+  deleteRefundFromGas,
+  saveUserToGas,
+  deleteUserFromGas,
   batchSyncToGas,
 } from './services/gasService';
 import { User } from 'firebase/auth';
@@ -246,12 +255,196 @@ export default function App() {
     (e) => e.status !== 'completed' && e.status !== 'cancelled'
   ).length;
 
+  // Active Google Apps Script URL resolver
+  const getActiveGasUrl = (): string | null => {
+    return sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+  };
+
+  // Unified cloud sync dispatchers
+  const syncPatientToCloud = async (patient: Patient, isUpdate: boolean = false) => {
+    const gasUrl = getActiveGasUrl();
+    const token = await getAccessToken();
+    let synced = false;
+
+    if (gasUrl) {
+      try {
+        await savePatientToGas(gasUrl, patient);
+        synced = true;
+      } catch (err: any) {
+        console.error('Error enviando paciente a Apps Script:', err);
+        showToast(`⚠️ Error al enviar paciente a Google Sheets: ${err?.message || 'Fallo de conexión'}`);
+      }
+    }
+
+    if (token && sheetConfig.spreadsheetId) {
+      try {
+        if (isUpdate) {
+          await updatePatientInGoogleSheet(token, sheetConfig.spreadsheetId, patient);
+        } else {
+          await appendPatientToGoogleSheet(token, sheetConfig.spreadsheetId, patient);
+        }
+        synced = true;
+      } catch (err: any) {
+        console.error('Error enviando paciente a Google Sheets API:', err);
+      }
+    }
+
+    if (synced) {
+      setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+    }
+  };
+
+  const deletePatientFromCloud = async (patientId: string) => {
+    const gasUrl = getActiveGasUrl();
+    const token = await getAccessToken();
+
+    if (gasUrl) {
+      try {
+        await deletePatientFromGas(gasUrl, patientId);
+        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+      } catch (err: any) {
+        console.error('Error eliminando paciente en Apps Script:', err);
+      }
+    }
+
+    if (token && sheetConfig.spreadsheetId) {
+      try {
+        await deletePatientFromGoogleSheet(token, sheetConfig.spreadsheetId, patientId);
+        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+      } catch (err: any) {
+        console.error('Error eliminando paciente en Google Sheets API:', err);
+      }
+    }
+  };
+
+  const syncPaymentToCloud = async (payment: Payment) => {
+    const gasUrl = getActiveGasUrl();
+    const token = await getAccessToken();
+    let synced = false;
+
+    if (gasUrl) {
+      try {
+        await savePaymentToGas(gasUrl, payment);
+        synced = true;
+      } catch (err: any) {
+        console.error('Error enviando abono a Apps Script:', err);
+      }
+    }
+
+    if (token && sheetConfig.spreadsheetId) {
+      try {
+        await appendPaymentToGoogleSheet(token, sheetConfig.spreadsheetId, payment);
+        synced = true;
+      } catch (err: any) {
+        console.error('Error enviando abono a Google Sheets API:', err);
+      }
+    }
+
+    if (synced) {
+      setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+    }
+  };
+
+  const syncRefundToCloud = async (refund: Refund) => {
+    const gasUrl = getActiveGasUrl();
+    const token = await getAccessToken();
+    let synced = false;
+
+    if (gasUrl) {
+      try {
+        await saveRefundToGas(gasUrl, refund);
+        synced = true;
+      } catch (err: any) {
+        console.error('Error enviando reintegro a Apps Script:', err);
+      }
+    }
+
+    if (token && sheetConfig.spreadsheetId) {
+      try {
+        await appendRefundToGoogleSheet(token, sheetConfig.spreadsheetId, refund);
+        synced = true;
+      } catch (err: any) {
+        console.error('Error enviando reintegro a Google Sheets API:', err);
+      }
+    }
+
+    if (synced) {
+      setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+    }
+  };
+
+  const syncUserToCloud = async (user: SystemUser, isUpdate: boolean = false) => {
+    const gasUrl = getActiveGasUrl();
+    const token = await getAccessToken();
+    let synced = false;
+
+    if (gasUrl) {
+      try {
+        await saveUserToGas(gasUrl, user);
+        synced = true;
+      } catch (err: any) {
+        console.error('Error enviando usuario a Apps Script:', err);
+        showToast(`⚠️ Error al enviar usuario a Google Sheets: ${err?.message || 'Fallo de conexión'}`);
+      }
+    }
+
+    if (token && sheetConfig.spreadsheetId) {
+      try {
+        if (isUpdate) {
+          await updateUserInGoogleSheet(token, sheetConfig.spreadsheetId, user);
+        } else {
+          await appendUserToGoogleSheet(token, sheetConfig.spreadsheetId, user);
+        }
+        synced = true;
+      } catch (err: any) {
+        console.error('Error enviando usuario a Google Sheets API:', err);
+      }
+    }
+
+    if (synced) {
+      setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+      showToast(`✓ Usuario "${user.fullName}" sincronizado con Google Sheets.`);
+    } else if (!gasUrl && (!token || !sheetConfig.spreadsheetId)) {
+      showToast(`⚠️ Usuario guardado en memoria local. Conecte Google Sheets para sincronizar en tiempo real.`);
+    }
+  };
+
+  const deleteUserFromCloud = async (userId: string) => {
+    const gasUrl = getActiveGasUrl();
+    const token = await getAccessToken();
+
+    if (gasUrl) {
+      try {
+        await deleteUserFromGas(gasUrl, userId);
+        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+      } catch (err: any) {
+        console.error('Error eliminando usuario de Apps Script:', err);
+      }
+    }
+
+    if (token && sheetConfig.spreadsheetId) {
+      try {
+        await deleteUserInGoogleSheet(token, sheetConfig.spreadsheetId, userId);
+        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+      } catch (err: any) {
+        console.error('Error eliminando usuario de Google Sheets API:', err);
+      }
+    }
+  };
+
   const handleSaveUser = (userData: Omit<SystemUser, 'id' | 'createdAt'>, id?: string) => {
     if (id) {
+      const existing = users.find((u) => u.id === id);
+      const updatedUser: SystemUser = {
+        ...(existing || { id, createdAt: new Date().toISOString().split('T')[0] }),
+        ...userData,
+        id,
+      };
       setUsers((prev) =>
-        prev.map((u) => (u.id === id ? { ...u, ...userData } : u))
+        prev.map((u) => (u.id === id ? updatedUser : u))
       );
       showToast(`Usuario "${userData.fullName}" actualizado correctamente.`);
+      syncUserToCloud(updatedUser, true).catch(console.error);
     } else {
       const newUser: SystemUser = {
         id: `USR-${Date.now().toString().slice(-4)}`,
@@ -260,6 +453,7 @@ export default function App() {
       };
       setUsers((prev) => [...prev, newUser]);
       showToast(`Usuario "${userData.fullName}" creado con perfil ${userData.role}.`);
+      syncUserToCloud(newUser, false).catch(console.error);
     }
   };
 
@@ -278,6 +472,7 @@ export default function App() {
       }
     }
     showToast(`Usuario "${userToDelete?.fullName || id}" eliminado del sistema.`);
+    deleteUserFromCloud(id).catch(console.error);
   };
 
   const handleToggleUserStatus = (id: string) => {
@@ -287,16 +482,21 @@ export default function App() {
       return;
     }
 
+    let changedUser: SystemUser | null = null;
     setUsers((prev) =>
       prev.map((u) => {
         if (u.id === id) {
           const updatedStatus = !u.isActive;
           showToast(`Usuario "${u.fullName}" ${updatedStatus ? 'activado' : 'desactivado'}.`);
-          return { ...u, isActive: updatedStatus };
+          changedUser = { ...u, isActive: updatedStatus };
+          return changedUser;
         }
         return u;
       })
     );
+    if (changedUser) {
+      syncUserToCloud(changedUser, true).catch(console.error);
+    }
   };
 
   const handleSelectActiveUser = (userId: string) => {
@@ -311,6 +511,7 @@ export default function App() {
   const handleUpdateCurrentUser = (updatedUser: SystemUser) => {
     setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
     showToast(`Perfil de ${updatedUser.fullName} actualizado.`);
+    syncUserToCloud(updatedUser, true).catch(console.error);
   };
 
   const handleLogout = () => {
@@ -424,7 +625,7 @@ export default function App() {
     setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
     try {
       // Sync our data to the sheet
-      await syncAllToGoogleSheet(token, sheetId, patients, payments, refunds);
+      await syncAllToGoogleSheet(token, sheetId, patients, payments, refunds, users);
 
       const updatedConfig: GoogleSheetConfig = {
         spreadsheetId: sheetId,
@@ -456,7 +657,7 @@ export default function App() {
 
     setSheetConfig((prev) => ({ ...prev, isSyncing: true }));
     try {
-      await syncAllToGoogleSheet(token, sheetConfig.spreadsheetId, patients, payments, refunds);
+      await syncAllToGoogleSheet(token, sheetConfig.spreadsheetId, patients, payments, refunds, users);
       setSheetConfig((prev) => ({
         ...prev,
         isSyncing: false,
@@ -485,6 +686,7 @@ export default function App() {
         if (result.patients.length > 0) setPatients(result.patients);
         if (result.payments.length > 0) setPayments(result.payments);
         if (result.refunds.length > 0) setRefunds(result.refunds);
+        if (result.users && result.users.length > 0) setUsers(result.users);
 
         setSheetConfig((prev) => ({
           ...prev,
@@ -705,13 +907,7 @@ export default function App() {
       setPayments(updatedPayments);
 
       // Async sync to Google Sheets if connected
-      const token = await getAccessToken();
-      if (token && sheetConfig.spreadsheetId) {
-        appendPaymentToGoogleSheet(token, sheetConfig.spreadsheetId, paymentRecord).catch(console.error);
-      }
-      if (sheetConfig.gasDeploymentUrl) {
-        savePaymentToGas(sheetConfig.gasDeploymentUrl, paymentRecord).catch(console.error);
-      }
+      syncPaymentToCloud(paymentRecord).catch(console.error);
     }
 
     const updatedPatients = [newPatient, ...patients];
@@ -726,21 +922,7 @@ export default function App() {
     showToast(`Paciente ${newPatient.fullName} registrada y ${newCRMEvents.length} eventos creados en CRM.`);
 
     // Async sync to Google Sheets if connected (Direct OAuth or Google Apps Script)
-    const token = await getAccessToken();
-    if (token && sheetConfig.spreadsheetId) {
-      appendPatientToGoogleSheet(token, sheetConfig.spreadsheetId, newPatient)
-        .then(() => {
-          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-        })
-        .catch(console.error);
-    }
-    if (sheetConfig.gasDeploymentUrl) {
-      savePatientToGas(sheetConfig.gasDeploymentUrl, newPatient)
-        .then(() => {
-          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-        })
-        .catch(console.error);
-    }
+    syncPatientToCloud(newPatient, false).catch(console.error);
   };
 
   const handleOpenEditPatient = (patient: Patient) => {
@@ -772,14 +954,8 @@ export default function App() {
       setSelectedPatientForDetails(updatedPatient);
     }
 
-    // Async sync updated patient to Google Apps Script if connected
-    if (sheetConfig.gasDeploymentUrl) {
-      savePatientToGas(sheetConfig.gasDeploymentUrl, updatedPatient)
-        .then(() => {
-          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-        })
-        .catch(console.error);
-    }
+    // Async sync updated patient to Google Sheets
+    syncPatientToCloud(updatedPatient, true).catch(console.error);
 
     showToast(`Registro de "${updatedPatient.fullName}" actualizado correctamente.`);
   };
@@ -800,15 +976,8 @@ export default function App() {
 
     showToast(`Paciente "${name}" y todos sus abonos y registros asociados eliminados.`);
 
-    // Borrado en cascada en Google Sheets vía Google Apps Script
-    if (sheetConfig.gasDeploymentUrl) {
-      deletePatientFromGas(sheetConfig.gasDeploymentUrl, patientId)
-        .then((res) => {
-          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-          console.log(`Borrado en cascada en Google Sheets. Abonos: ${res.deletedPayments}, Reintegros: ${res.deletedRefunds}`);
-        })
-        .catch(console.error);
-    }
+    // Borrado en cascada en Google Sheets
+    deletePatientFromCloud(patientId).catch(console.error);
   };
 
   const handleSavePayment = async (
@@ -863,21 +1032,7 @@ export default function App() {
     showToast(`Abono de $${paymentRecord.amount.toLocaleString()} registrado para ${paymentRecord.patientName}.`);
 
     // Async sync to Google Sheets
-    const token = await getAccessToken();
-    if (token && sheetConfig.spreadsheetId) {
-      appendPaymentToGoogleSheet(token, sheetConfig.spreadsheetId, paymentRecord)
-        .then(() => {
-          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-        })
-        .catch(console.error);
-    }
-    if (sheetConfig.gasDeploymentUrl) {
-      savePaymentToGas(sheetConfig.gasDeploymentUrl, paymentRecord)
-        .then(() => {
-          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-        })
-        .catch(console.error);
-    }
+    syncPaymentToCloud(paymentRecord).catch(console.error);
 
     // Open WhatsApp receipt if requested
     if (openWhatsAppReceipt) {
@@ -906,21 +1061,7 @@ export default function App() {
     showToast(`Reintegro de $${refundRecord.amount.toLocaleString()} procesado para ${refundRecord.patientName}.`);
 
     // Async sync to Google Sheets
-    const token = await getAccessToken();
-    if (token && sheetConfig.spreadsheetId) {
-      appendRefundToGoogleSheet(token, sheetConfig.spreadsheetId, refundRecord)
-        .then(() => {
-          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-        })
-        .catch(console.error);
-    }
-    if (sheetConfig.gasDeploymentUrl) {
-      saveRefundToGas(sheetConfig.gasDeploymentUrl, refundRecord)
-        .then(() => {
-          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-        })
-        .catch(console.error);
-    }
+    syncRefundToCloud(refundRecord).catch(console.error);
 
     if (openWhatsApp) {
       const patient = patients.find((p) => p.id === refundRecord.patientId);

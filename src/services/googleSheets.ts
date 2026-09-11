@@ -1,9 +1,10 @@
-import { Patient, Payment, Refund } from '../types';
+import { Patient, Payment, Refund, SystemUser } from '../types';
 
 export const SHEET_NAMES = {
   PATIENTS: 'Pacientes',
   PAYMENTS: 'Historial de Pagos',
   REFUNDS: 'Historial de Reintegros',
+  USERS: 'Usuarios',
 };
 
 const PATIENT_HEADERS = [
@@ -48,6 +49,19 @@ const REFUND_HEADERS = [
   'Creado En',
 ];
 
+const USER_HEADERS = [
+  'ID Usuario',
+  'Nombre Completo',
+  'Email',
+  'Rol',
+  'Teléfono',
+  'Contraseña',
+  'Activo',
+  'Es Inmutable',
+  'Fecha Creación',
+  'Notas',
+];
+
 /**
  * Creates a brand new Google Sheet formatted for Dr. Belleza Cobranza
  */
@@ -75,6 +89,12 @@ export async function createDrBellezaSpreadsheet(accessToken: string): Promise<{
       {
         properties: {
           title: SHEET_NAMES.REFUNDS,
+          gridProperties: { rowCount: 50, columnCount: 12, frozenRowCount: 1 },
+        },
+      },
+      {
+        properties: {
+          title: SHEET_NAMES.USERS,
           gridProperties: { rowCount: 50, columnCount: 12, frozenRowCount: 1 },
         },
       },
@@ -122,6 +142,10 @@ export async function createDrBellezaSpreadsheet(accessToken: string): Promise<{
           {
             range: `'${SHEET_NAMES.REFUNDS}'!A1:J1`,
             values: [REFUND_HEADERS],
+          },
+          {
+            range: `'${SHEET_NAMES.USERS}'!A1:J1`,
+            values: [USER_HEADERS],
           },
         ],
       }),
@@ -193,6 +217,24 @@ function refundToRow(ref: Refund): (string | number)[] {
 }
 
 /**
+ * Format a User into a Google Sheets row
+ */
+function userToRow(u: SystemUser): (string | number)[] {
+  return [
+    u.id,
+    u.fullName,
+    u.email,
+    u.role,
+    u.phone || '',
+    u.password || '',
+    u.isActive ? 'true' : 'false',
+    u.isImmutable ? 'true' : 'false',
+    u.createdAt || new Date().toISOString().split('T')[0],
+    u.notes || '',
+  ];
+}
+
+/**
  * Sync entire current dataset into Google Sheets cleanly
  */
 export async function syncAllToGoogleSheet(
@@ -200,11 +242,22 @@ export async function syncAllToGoogleSheet(
   spreadsheetId: string,
   patients: Patient[],
   payments: Payment[],
-  refunds: Refund[]
+  refunds: Refund[],
+  users?: SystemUser[]
 ): Promise<void> {
   const patientRows = [PATIENT_HEADERS, ...patients.map(patientToRow)];
   const paymentRows = [PAYMENT_HEADERS, ...payments.map(paymentToRow)];
   const refundRows = [REFUND_HEADERS, ...refunds.map(refundToRow)];
+  const userRows = users ? [USER_HEADERS, ...users.map(userToRow)] : [];
+
+  const rangesToClear = [
+    `'${SHEET_NAMES.PATIENTS}'!A1:Z`,
+    `'${SHEET_NAMES.PAYMENTS}'!A1:Z`,
+    `'${SHEET_NAMES.REFUNDS}'!A1:Z`,
+  ];
+  if (users && users.length > 0) {
+    rangesToClear.push(`'${SHEET_NAMES.USERS}'!A1:Z`);
+  }
 
   // Clear existing ranges to avoid orphaned leftover rows
   await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`, {
@@ -214,13 +267,30 @@ export async function syncAllToGoogleSheet(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      ranges: [
-        `'${SHEET_NAMES.PATIENTS}'!A1:Z`,
-        `'${SHEET_NAMES.PAYMENTS}'!A1:Z`,
-        `'${SHEET_NAMES.REFUNDS}'!A1:Z`,
-      ],
+      ranges: rangesToClear,
     }),
   });
+
+  const updateData: any[] = [
+    {
+      range: `'${SHEET_NAMES.PATIENTS}'!A1`,
+      values: patientRows,
+    },
+    {
+      range: `'${SHEET_NAMES.PAYMENTS}'!A1`,
+      values: paymentRows,
+    },
+    {
+      range: `'${SHEET_NAMES.REFUNDS}'!A1`,
+      values: refundRows,
+    },
+  ];
+  if (users && users.length > 0) {
+    updateData.push({
+      range: `'${SHEET_NAMES.USERS}'!A1`,
+      values: userRows,
+    });
+  }
 
   // Batch update with current clean records
   const updateRes = await fetch(
@@ -233,20 +303,7 @@ export async function syncAllToGoogleSheet(
       },
       body: JSON.stringify({
         valueInputOption: 'USER_ENTERED',
-        data: [
-          {
-            range: `'${SHEET_NAMES.PATIENTS}'!A1`,
-            values: patientRows,
-          },
-          {
-            range: `'${SHEET_NAMES.PAYMENTS}'!A1`,
-            values: paymentRows,
-          },
-          {
-            range: `'${SHEET_NAMES.REFUNDS}'!A1`,
-            values: refundRows,
-          },
-        ],
+        data: updateData,
       }),
     }
   );
@@ -263,12 +320,13 @@ export async function syncAllToGoogleSheet(
 export async function fetchAllFromGoogleSheet(
   accessToken: string,
   spreadsheetId: string
-): Promise<{ patients: Patient[]; payments: Payment[]; refunds: Refund[] } | null> {
+): Promise<{ patients: Patient[]; payments: Payment[]; refunds: Refund[]; users?: SystemUser[] } | null> {
   try {
     const ranges = [
       `'${SHEET_NAMES.PATIENTS}'!A2:M`,
       `'${SHEET_NAMES.PAYMENTS}'!A2:J`,
       `'${SHEET_NAMES.REFUNDS}'!A2:J`,
+      `'${SHEET_NAMES.USERS}'!A2:J`,
     ];
     const encodedRanges = ranges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
 
@@ -298,6 +356,7 @@ export async function fetchAllFromGoogleSheet(
     const rawPatients = valueRanges[0]?.values || [];
     const rawPayments = valueRanges[1]?.values || [];
     const rawRefunds = valueRanges[2]?.values || [];
+    const rawUsers = valueRanges[3]?.values || [];
 
     const patients: Patient[] = rawPatients
       .filter((row: any[]) => row && row[0])
@@ -354,7 +413,22 @@ export async function fetchAllFromGoogleSheet(
         createdAt: String(row[9] || new Date().toISOString()),
       }));
 
-    return { patients, payments, refunds };
+    const users: SystemUser[] = rawUsers
+      .filter((row: any[]) => row && row[0])
+      .map((row: any[]) => ({
+        id: String(row[0]),
+        fullName: String(row[1] || ''),
+        email: String(row[2] || ''),
+        role: (row[3] as any) || 'asistente',
+        phone: String(row[4] || ''),
+        password: String(row[5] || ''),
+        isActive: String(row[6]).toLowerCase() === 'true',
+        isImmutable: String(row[7]).toLowerCase() === 'true',
+        createdAt: String(row[8] || new Date().toISOString().split('T')[0]),
+        notes: row[9] ? String(row[9]) : '',
+      }));
+
+    return { patients, payments, refunds, users };
   } catch (error) {
     console.error('Error fetching sheet data:', error);
     throw error;
@@ -383,6 +457,96 @@ export async function appendPatientToGoogleSheet(
       }),
     }
   );
+}
+
+/**
+ * Update an existing patient in Google Sheets
+ */
+export async function updatePatientInGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  patient: Patient
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PATIENTS}'!A:A`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!res.ok) {
+      await appendPatientToGoogleSheet(accessToken, spreadsheetId, patient);
+      return;
+    }
+    const data = await res.json();
+    const rows = data.values || [];
+    let targetRowIndex = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][0]) === String(patient.id)) {
+        targetRowIndex = i + 1;
+        break;
+      }
+    }
+    if (targetRowIndex > 1) {
+      const row = patientToRow(patient);
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PATIENTS}'!A${targetRowIndex}:M${targetRowIndex}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            values: [row],
+          }),
+        }
+      );
+    } else {
+      await appendPatientToGoogleSheet(accessToken, spreadsheetId, patient);
+    }
+  } catch (e) {
+    console.error('Error updating patient in Google Sheet:', e);
+  }
+}
+
+/**
+ * Delete a patient row from Google Sheets by clearing it
+ */
+export async function deletePatientFromGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  patientId: string
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PATIENTS}'!A:A`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const rows = data.values || [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][0]) === String(patientId)) {
+        const rowIdx = i + 1;
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PATIENTS}'!A${rowIdx}:M${rowIdx}:clear`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        break;
+      }
+    }
+  } catch (e) {
+    console.error('Error deleting patient from Google Sheet:', e);
+  }
 }
 
 /**
@@ -431,4 +595,118 @@ export async function appendRefundToGoogleSheet(
       }),
     }
   );
+}
+
+/**
+ * Append a single user row to the Google Sheet
+ */
+export async function appendUserToGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  user: SystemUser
+): Promise<void> {
+  const row = userToRow(user);
+  await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.USERS}'!A:J:append?valueInputOption=USER_ENTERED`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        values: [row],
+      }),
+    }
+  );
+}
+
+/**
+ * Update an existing user in Google Sheets
+ */
+export async function updateUserInGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  user: SystemUser
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.USERS}'!A:A`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!res.ok) {
+      await appendUserToGoogleSheet(accessToken, spreadsheetId, user);
+      return;
+    }
+    const data = await res.json();
+    const rows = data.values || [];
+    let targetRowIndex = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][0]) === String(user.id)) {
+        targetRowIndex = i + 1;
+        break;
+      }
+    }
+    if (targetRowIndex > 1) {
+      const row = userToRow(user);
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.USERS}'!A${targetRowIndex}:J${targetRowIndex}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            values: [row],
+          }),
+        }
+      );
+    } else {
+      await appendUserToGoogleSheet(accessToken, spreadsheetId, user);
+    }
+  } catch (e) {
+    console.error('Error updating user in Google Sheet:', e);
+  }
+}
+
+/**
+ * Delete a user row from Google Sheets by clearing it
+ */
+export async function deleteUserInGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  userId: string
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.USERS}'!A:A`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const rows = data.values || [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][0]) === String(userId)) {
+        const rowIdx = i + 1;
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.USERS}'!A${rowIdx}:J${rowIdx}:clear`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        break;
+      }
+    }
+  } catch (e) {
+    console.error('Error deleting user in Google Sheet:', e);
+  }
 }

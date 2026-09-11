@@ -396,8 +396,18 @@ function formatearFecha(valor) {
   return String(valor).split('T')[0];
 }
 
+function obtenerOCrearHoja(ss, tableDef) {
+  var sheet = ss.getSheetByName(tableDef.name);
+  if (!sheet) {
+    sheet = ss.insertSheet(tableDef.name);
+    sheet.appendRow(tableDef.headers);
+    formatearEncabezado(sheet, tableDef.headers.length);
+  }
+  return sheet;
+}
+
 function guardarPaciente(ss, patient) {
-  var sheet = ss.getSheetByName(SCHEMA.PACIENTES.name);
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
 
@@ -560,7 +570,7 @@ function recalcularTotalesPaciente(ss, patientId) {
 }
 
 function guardarUsuario(ss, user) {
-  var sheet = ss.getSheetByName(SCHEMA.USUARIOS.name);
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.USUARIOS);
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
 
@@ -593,7 +603,7 @@ function guardarUsuario(ss, user) {
 }
 
 function borrarUsuario(ss, userId) {
-  var sheet = ss.getSheetByName(SCHEMA.USUARIOS.name);
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.USUARIOS);
   var values = sheet.getDataRange().getValues();
   for (var i = 1; i < values.length; i++) {
     if (String(values[i][0]) === String(userId)) {
@@ -608,7 +618,7 @@ function borrarUsuario(ss, userId) {
 }
 
 function guardarEventoCRM(ss, ev) {
-  var sheet = ss.getSheetByName(SCHEMA.CRM.name);
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.CRM);
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
   for (var i = 1; i < values.length; i++) {
@@ -636,14 +646,14 @@ function guardarEventoCRM(ss, ev) {
 
 function sincronizarMasivo(ss, data) {
   if (data.patients && Array.isArray(data.patients)) {
-    var patSheet = ss.getSheetByName(SCHEMA.PACIENTES.name);
+    var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
     patSheet.clearContents();
     patSheet.appendRow(SCHEMA.PACIENTES.headers);
     formatearEncabezado(patSheet, SCHEMA.PACIENTES.headers.length);
     data.patients.forEach(function(p) { guardarPaciente(ss, p); });
   }
   if (data.payments && Array.isArray(data.payments)) {
-    var paySheet = ss.getSheetByName(SCHEMA.ABONOS.name);
+    var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
     paySheet.clearContents();
     paySheet.appendRow(SCHEMA.ABONOS.headers);
     formatearEncabezado(paySheet, SCHEMA.ABONOS.headers.length);
@@ -656,7 +666,7 @@ function sincronizarMasivo(ss, data) {
     });
   }
   if (data.refunds && Array.isArray(data.refunds)) {
-    var refSheet = ss.getSheetByName(SCHEMA.REINTEGROS.name);
+    var refSheet = obtenerOCrearHoja(ss, SCHEMA.REINTEGROS);
     refSheet.clearContents();
     refSheet.appendRow(SCHEMA.REINTEGROS.headers);
     formatearEncabezado(refSheet, SCHEMA.REINTEGROS.headers.length);
@@ -667,6 +677,20 @@ function sincronizarMasivo(ss, data) {
         r.createdAt || new Date().toISOString()
       ]);
     });
+  }
+  if (data.users && Array.isArray(data.users)) {
+    var usrSheet = obtenerOCrearHoja(ss, SCHEMA.USUARIOS);
+    usrSheet.clearContents();
+    usrSheet.appendRow(SCHEMA.USUARIOS.headers);
+    formatearEncabezado(usrSheet, SCHEMA.USUARIOS.headers.length);
+    data.users.forEach(function(u) { guardarUsuario(ss, u); });
+  }
+  if (data.crmEvents && Array.isArray(data.crmEvents)) {
+    var crmSheet = obtenerOCrearHoja(ss, SCHEMA.CRM);
+    crmSheet.clearContents();
+    crmSheet.appendRow(SCHEMA.CRM.headers);
+    formatearEncabezado(crmSheet, SCHEMA.CRM.headers.length);
+    data.crmEvents.forEach(function(ev) { guardarEventoCRM(ss, ev); });
   }
   return { status: 'ok', message: 'Sincronización masiva completada' };
 }
