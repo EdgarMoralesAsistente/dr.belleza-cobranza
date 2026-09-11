@@ -398,19 +398,29 @@ export function saveLocalUsers(users: SystemUser[]): void {
   }
 }
 
-export function loadActiveUserId(): string {
+export function loadActiveUserId(): string | null {
   try {
-    const saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_USER_ID);
-    if (saved) return saved;
+    // Check sessionStorage first so that every fresh URL visit requests login
+    const sessionUser = sessionStorage.getItem(STORAGE_KEYS.ACTIVE_USER_ID);
+    if (sessionUser) return sessionUser;
+    
+    // Also remove legacy hardcoded localStorage key to avoid auto-login
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_ID);
   } catch (e) {
     console.error('Error loading active user id', e);
   }
-  return EDGAR_SUPER_ADMIN_ID; // Predeterminado: Edgar Morales (Super Admin)
+  return null; // Require login upon accessing the application
 }
 
-export function saveActiveUserId(userId: string): void {
+export function saveActiveUserId(userId: string | null): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.ACTIVE_USER_ID, userId);
+    if (userId) {
+      sessionStorage.setItem(STORAGE_KEYS.ACTIVE_USER_ID, userId);
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_ID);
+    } else {
+      sessionStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_ID);
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_ID);
+    }
   } catch (e) {
     console.error('Error saving active user id', e);
   }

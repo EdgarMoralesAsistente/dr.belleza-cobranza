@@ -35,7 +35,7 @@ interface SidebarProps {
   currentUser: User | null;
   sheetConfig: GoogleSheetConfig;
   users: SystemUser[];
-  activeUserId: string;
+  activeUserId?: string | null;
   onSelectActiveUser?: (userId: string) => void;
   onOpenNewPayment: () => void;
   onOpenNewPatient: () => void;
@@ -53,42 +53,6 @@ interface SidebarProps {
   crmPendingCount?: number;
   rolePrivileges?: RolePrivilege[];
 }
-
-const ROLE_DISPLAY: Record<
-  UserRole,
-  { label: string; shortLabel: string; badgeColor: string; isSuperAdmin: boolean }
-> = {
-  super_admin: {
-    label: 'Super Administrador',
-    shortLabel: 'Super Admin',
-    badgeColor: 'bg-purple-100 text-purple-800 border-purple-200',
-    isSuperAdmin: true,
-  },
-  admin: {
-    label: 'Administrador',
-    shortLabel: 'Admin',
-    badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
-    isSuperAdmin: false,
-  },
-  medico: {
-    label: 'Médico Cirujano',
-    shortLabel: 'Médico',
-    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    isSuperAdmin: false,
-  },
-  financiero: {
-    label: 'Financiero',
-    shortLabel: 'Finanzas',
-    badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
-    isSuperAdmin: false,
-  },
-  asistente: {
-    label: 'Asistente',
-    shortLabel: 'Secretaría',
-    badgeColor: 'bg-rose-100 text-rose-800 border-rose-200',
-    isSuperAdmin: false,
-  },
-};
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
@@ -116,17 +80,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  const activeUser = users.find((u) => u.id === activeUserId) || users[0] || {
-    id: 'USR-SUPER-EDGAR',
-    fullName: 'Edgar Morales',
-    email: 'edgar@morales.com',
-    role: 'super_admin' as UserRole,
-  };
-
-  const isSuperAdmin = activeUser.role === 'super_admin';
-  const isEdgar = activeUser.email.toLowerCase() === 'edgar@morales.com' || activeUser.isImmutable;
-  const roleInfo = ROLE_DISPLAY[activeUser.role] || ROLE_DISPLAY.super_admin;
-  const userPrivilege = rolePrivileges?.find((p) => p.role === activeUser.role);
+  const activeUser = activeUserId ? users.find((u) => u.id === activeUserId) || null : null;
+  const isSuperAdmin = activeUser?.role === 'super_admin';
+  const userPrivilege = activeUser ? rolePrivileges?.find((p) => p.role === activeUser.role) : null;
 
   const handleTabClick = (tab: ActiveTab) => {
     setActiveTab(tab);
@@ -163,49 +119,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'dashboard',
       label: 'Dashboard General',
       icon: LayoutDashboard,
-      allowed: userPrivilege ? userPrivilege.canViewDashboard : true,
+      allowed: activeUser ? (userPrivilege ? userPrivilege.canViewDashboard : true) : false,
     },
     {
       id: 'crm',
       label: 'CRM',
       icon: Kanban,
       badge: crmPendingCount && crmPendingCount > 0 ? crmPendingCount : undefined,
-      allowed: userPrivilege ? userPrivilege.canManagePatients : true,
+      allowed: activeUser ? (userPrivilege ? userPrivilege.canManagePatients : true) : false,
     },
     {
       id: 'patients',
       label: 'Pacientes & Cobranza',
       icon: Users,
-      allowed: userPrivilege ? userPrivilege.canManagePatients : true,
+      allowed: activeUser ? (userPrivilege ? userPrivilege.canManagePatients : true) : false,
     },
     {
       id: 'payments',
       label: 'Historial de Abonos',
       icon: CreditCard,
-      allowed: userPrivilege ? (userPrivilege.canRegisterPayments || userPrivilege.canViewDashboard) : true,
+      allowed: activeUser
+        ? userPrivilege
+          ? userPrivilege.canRegisterPayments || userPrivilege.canViewDashboard
+          : true
+        : false,
     },
     {
       id: 'refunds',
       label: 'Reintegros',
       icon: Undo2,
-      allowed: userPrivilege ? userPrivilege.canRegisterRefunds : true,
+      allowed: activeUser ? (userPrivilege ? userPrivilege.canRegisterRefunds : true) : false,
     },
     {
       id: 'users',
       label: 'Gestión de Usuarios',
       icon: ShieldCheck,
       badge: users.length,
-      allowed: userPrivilege
-        ? userPrivilege.canManageUsers
-        : activeUser.role === 'super_admin' || activeUser.role === 'admin',
+      allowed: activeUser
+        ? userPrivilege
+          ? userPrivilege.canManageUsers
+          : activeUser.role === 'super_admin' || activeUser.role === 'admin'
+        : false,
     },
     {
       id: 'settings',
       label: 'Configuración',
       icon: Settings,
-      allowed: userPrivilege
-        ? userPrivilege.canManageSettings
-        : activeUser.role === 'super_admin' || activeUser.role === 'admin',
+      allowed: activeUser
+        ? userPrivilege
+          ? userPrivilege.canManageSettings
+          : activeUser.role === 'super_admin' || activeUser.role === 'admin'
+        : false,
     },
   ];
 
@@ -318,7 +282,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </div>
           <div className="grid grid-cols-2 gap-1.5">
-            {(!userPrivilege || userPrivilege.canRegisterPayments) && (
+            {Boolean(activeUser && (!userPrivilege || userPrivilege.canRegisterPayments)) && (
               <button
                 onClick={() => {
                   onOpenNewPayment();
@@ -332,7 +296,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
 
-            {(!userPrivilege || userPrivilege.canManagePatients) && (
+            {Boolean(activeUser && (!userPrivilege || userPrivilege.canManagePatients)) && (
               <button
                 onClick={() => {
                   onOpenNewPatient();
@@ -346,7 +310,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
 
-            {(!userPrivilege || userPrivilege.canRegisterRefunds) && (
+            {Boolean(activeUser && (!userPrivilege || userPrivilege.canRegisterRefunds)) && (
               <button
                 onClick={() => {
                   onOpenNewRefund();
@@ -360,7 +324,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
 
-            {(!userPrivilege || userPrivilege.canExportReports) && (
+            {Boolean(activeUser && (!userPrivilege || userPrivilege.canExportReports)) && (
               <button
                 onClick={() => {
                   onOpenMonthlyReport();
@@ -373,72 +337,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="truncate">Reporte PDF</span>
               </button>
             )}
-          </div>
-        </div>
-
-        {/* Current User Session Card */}
-        <div className="p-2.5 mx-3 mt-2.5 rounded-xl bg-slate-50 border border-slate-200/80 transition-colors">
-          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
-            <div className="flex items-center space-x-1">
-              <span className="font-bold uppercase tracking-wider text-[9px] text-slate-400">
-                Sesión Activa
-              </span>
-              {isEdgar && (
-                <span className="text-[8px] bg-purple-100 text-purple-800 font-extrabold px-1 rounded border border-purple-200" title="Super Administrador Inmutable">
-                  ★ Inmutable
-                </span>
-              )}
-            </div>
-            <span
-              className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${roleInfo.badgeColor}`}
-            >
-              {roleInfo.shortLabel}
-            </span>
-          </div>
-
-          <div
-            onClick={onOpenProfileModal}
-            className="flex items-center space-x-2 p-1 rounded-lg hover:bg-white transition-colors cursor-pointer group"
-            title="Ver perfil de usuario en la esquina superior derecha"
-          >
-            <div className="w-7 h-7 rounded-lg bg-emerald-600 group-hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center justify-center shrink-0 shadow-2xs transition-colors">
-              {activeUser.fullName
-                .split(' ')
-                .map((n) => n[0])
-                .slice(0, 2)
-                .join('')}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-700">
-                {activeUser.fullName}
-              </div>
-              <div className="text-[10px] text-slate-500 truncate">
-                {activeUser.email}
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Actions Profile & Logout */}
-          <div className="mt-2 pt-1.5 border-t border-slate-200/80">
-            <div className="flex items-center space-x-1.5">
-              <button
-                type="button"
-                onClick={onOpenProfileModal}
-                className="flex-1 text-[10px] font-semibold py-1 px-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors text-center cursor-pointer shadow-2xs"
-              >
-                Mi Perfil
-              </button>
-              {(onLogout || onOpenLoginModal) && (
-                <button
-                  type="button"
-                  onClick={onLogout || onOpenLoginModal}
-                  className="flex-1 text-[10px] font-semibold py-1 px-1.5 rounded-md bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 transition-colors text-center cursor-pointer shadow-2xs flex items-center justify-center space-x-1"
-                >
-                  <LogOut className="w-3 h-3 text-rose-600 shrink-0" />
-                  <span>Cerrar Sesión</span>
-                </button>
-              )}
-            </div>
           </div>
         </div>
 

@@ -15,8 +15,8 @@ import {
 import { SystemUser, UserRole } from '../types';
 
 interface UserProfileHeaderProps {
-  currentUser?: SystemUser;
-  activeUser?: SystemUser;
+  currentUser?: SystemUser | null;
+  activeUser?: SystemUser | null;
   users?: SystemUser[];
   onOpenProfileModal?: () => void;
   onOpenProfile?: () => void;
@@ -71,16 +71,8 @@ export const UserProfileHeader: React.FC<UserProfileHeaderProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Robust user resolution
-  const resolvedUser: SystemUser = currentUser || activeUser || users[0] || {
-    id: 'USR-SUPER-EDGAR',
-    fullName: 'Edgar Morales',
-    email: 'edgar@morales.com',
-    role: 'super_admin',
-    isActive: true,
-    createdAt: '2026-01-15',
-    isImmutable: true,
-  };
+  // User resolution
+  const resolvedUser: SystemUser | null = currentUser || activeUser || null;
 
   const handleOpenProfile = () => {
     setIsOpen(false);
@@ -100,11 +92,6 @@ export const UserProfileHeader: React.FC<UserProfileHeaderProps> = ({
     else handleOpenLogin();
   };
 
-  const role = resolvedUser.role || 'super_admin';
-  const isSuperAdmin = role === 'super_admin';
-  const isEdgar = (resolvedUser.email || '').toLowerCase() === 'edgar@morales.com' || Boolean(resolvedUser.isImmutable);
-  const roleStyle = ROLE_BADGE_STYLES[role] || ROLE_BADGE_STYLES.super_admin;
-
   // Click outside to close
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -119,6 +106,25 @@ export const UserProfileHeader: React.FC<UserProfileHeaderProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isOpen]);
+
+  if (!resolvedUser) {
+    return (
+      <button
+        type="button"
+        onClick={handleOpenLogin}
+        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+        title="Iniciar Sesión"
+      >
+        <LogIn className="w-3.5 h-3.5" />
+        <span>Iniciar Sesión</span>
+      </button>
+    );
+  }
+
+  const role = resolvedUser.role || 'super_admin';
+  const isSuperAdmin = role === 'super_admin';
+  const isEdgar = (resolvedUser.email || '').toLowerCase() === 'edgar@morales.com' || Boolean(resolvedUser.isImmutable);
+  const roleStyle = ROLE_BADGE_STYLES[role] || ROLE_BADGE_STYLES.super_admin;
 
   const initials = (resolvedUser.fullName || 'U')
     .split(' ')

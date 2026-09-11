@@ -51,7 +51,7 @@ interface SettingsModuleProps {
   onSaveRolePrivileges: (privileges: RolePrivilege[]) => void;
   financingPlans: FinancingPlan[];
   onSaveFinancingPlans: (plans: FinancingPlan[]) => void;
-  activeUser: SystemUser;
+  activeUser?: SystemUser | null;
   onNavigateToUsers?: () => void;
 }
 
@@ -514,7 +514,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
           </span>
           <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center space-x-1">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>{activeUser.fullName}</span>
+            <span>{activeUser?.fullName || 'Super Admin'}</span>
           </span>
         </div>
       </div>

@@ -97,7 +97,7 @@ export default function App() {
 
   // Users & RBAC States
   const [users, setUsers] = useState<SystemUser[]>(loadLocalUsers);
-  const [activeUserId, setActiveUserId] = useState<string>(loadActiveUserId);
+  const [activeUserId, setActiveUserId] = useState<string | null>(loadActiveUserId);
 
   // Catalog, Coupons, Branding, Role Privileges & Financing Plans States
   const [procedures, setProcedures] = useState<SurgicalProcedure[]>(loadLocalProcedures);
@@ -136,7 +136,7 @@ export default function App() {
 
   // User Profile & Authentication Modals
   const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(() => !loadActiveUserId());
 
   // Temporary sync toast message
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -214,19 +214,14 @@ export default function App() {
   }, [crmEvents]);
 
   // Current active user & RBAC determination
-  const activeUser = users.find((u) => u.id === activeUserId) || users[0] || {
-    id: 'USR-SUPER-EDGAR',
-    fullName: 'Edgar Morales',
-    email: 'edgar@morales.com',
-    role: 'super_admin' as const,
-    isActive: true,
-    createdAt: '2026-01-15',
-    isImmutable: true,
-  };
-  const isSuperAdmin = activeUser.role === 'super_admin';
-  const currentPrivilege = rolePrivileges.find((p) => p.role === activeUser.role);
+  const activeUser: SystemUser | null = activeUserId
+    ? users.find((u) => u.id === activeUserId) || null
+    : null;
+  const isSuperAdmin = activeUser?.role === 'super_admin';
+  const currentPrivilege = activeUser ? rolePrivileges.find((p) => p.role === activeUser.role) : null;
 
   const isTabAllowed = (tab: ActiveTab): boolean => {
+    if (!activeUser) return false;
     if (!currentPrivilege) return true;
     switch (tab) {
       case 'dashboard':
@@ -316,6 +311,14 @@ export default function App() {
   const handleUpdateCurrentUser = (updatedUser: SystemUser) => {
     setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
     showToast(`Perfil de ${updatedUser.fullName} actualizado.`);
+  };
+
+  const handleLogout = () => {
+    setActiveUserId(null);
+    saveActiveUserId(null);
+    setIsUserProfileModalOpen(false);
+    setIsLoginModalOpen(true);
+    showToast('Ha cerrado sesión exitosamente.');
   };
 
   const handleLoginSuccess = (user: SystemUser) => {
@@ -996,7 +999,7 @@ export default function App() {
         onDenyNonSuperAdminSheetAccess={handleDenyNonSuperAdminSheetAccess}
         onOpenProfileModal={() => setIsUserProfileModalOpen(true)}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
-        onLogout={() => setIsLoginModalOpen(true)}
+        onLogout={handleLogout}
         branding={branding}
         crmPendingCount={crmPendingCount}
       />
@@ -1066,21 +1069,38 @@ export default function App() {
               onOpenProfileModal={() => setIsUserProfileModalOpen(true)}
               onOpenLogin={() => setIsLoginModalOpen(true)}
               onOpenLoginModal={() => setIsLoginModalOpen(true)}
-              onLogout={() => setIsLoginModalOpen(true)}
+              onLogout={handleLogout}
             />
           </div>
         </header>
 
         {/* Main Content Body */}
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-          {!isTabAllowed(activeTab) ? (
+          {!activeUser ? (
+            <div className="bg-white rounded-2xl p-10 border border-slate-200 text-center max-w-md mx-auto shadow-sm my-16">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto mb-4">
+                <Lock className="w-7 h-7" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 mb-2">Acceso al Sistema Requerido</h2>
+              <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                Por favor ingrese con su correo electrónico y contraseña registrados para acceder a los módulos de cobranza según su perfil y privilegios asignados.
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsLoginModalOpen(true)}
+                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs inline-flex items-center space-x-2"
+              >
+                <span>Iniciar Sesión</span>
+              </button>
+            </div>
+          ) : !isTabAllowed(activeTab) ? (
             <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center max-w-lg mx-auto shadow-sm my-12">
               <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto mb-4">
                 <Lock className="w-7 h-7" />
               </div>
               <h2 className="text-lg font-bold text-slate-900 mb-2">Acceso No Autorizado</h2>
               <p className="text-xs text-slate-500 mb-5 leading-relaxed">
-                Su perfil de usuario actual (<strong>{activeUser.fullName}</strong> — <span className="font-semibold capitalize">{activeUser.role}</span>) no cuenta con privilegios configurados para acceder a esta sección.
+                Su perfil de usuario actual (<strong>{activeUser?.fullName}</strong> — <span className="font-semibold capitalize">{activeUser?.role}</span>) no cuenta con privilegios configurados para acceder a esta sección.
               </p>
               <button
                 onClick={() => {
@@ -1290,7 +1310,7 @@ export default function App() {
         currentUser={currentUser}
         sheetConfig={sheetConfig}
         isSuperAdmin={isSuperAdmin}
-        activeUserName={`${activeUser.fullName} (${activeUser.role})`}
+        activeUserName={activeUser ? `${activeUser.fullName} (${activeUser.role})` : 'Sin sesión'}
         onSignInGoogle={handleSignInGoogle}
         onCreateNewSheet={handleCreateNewSheet}
         onConnectExistingSheet={handleConnectExistingSheet}
@@ -1306,19 +1326,21 @@ export default function App() {
       <UserProfileModal
         isOpen={isUserProfileModalOpen}
         onClose={() => setIsUserProfileModalOpen(false)}
-        currentUser={activeUser}
+        currentUser={activeUser || users[0]}
         privileges={rolePrivileges}
         onUpdateUser={handleUpdateCurrentUser}
-        onLogout={() => {
-          setIsUserProfileModalOpen(false);
-          setIsLoginModalOpen(true);
-        }}
+        onLogout={handleLogout}
       />
 
       {/* Email & Password Authentication Modal */}
       <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
+        isOpen={isLoginModalOpen || !activeUser}
+        isMandatory={!activeUser}
+        onClose={() => {
+          if (activeUser) {
+            setIsLoginModalOpen(false);
+          }
+        }}
         users={users}
         onLoginSuccess={handleLoginSuccess}
       />
