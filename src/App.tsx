@@ -743,7 +743,11 @@ export default function App() {
         setProcedures(data.procedures);
       }
       if (data.financingPlans && Array.isArray(data.financingPlans) && data.financingPlans.length > 0) {
-        setFinancingPlans(data.financingPlans);
+        setFinancingPlans((prev) => {
+          const remoteIds = new Set(data.financingPlans.map((p: FinancingPlan) => p.id));
+          const localOnly = prev.filter((p) => !remoteIds.has(p.id));
+          return [...localOnly, ...data.financingPlans];
+        });
       }
 
       const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
@@ -1110,6 +1114,27 @@ export default function App() {
     setIsNewRefundModalOpen(true);
   };
 
+  const handleSaveFinancingPlans = (updatedPlans: FinancingPlan[]) => {
+    setFinancingPlans(updatedPlans);
+    saveLocalFinancingPlans(updatedPlans);
+
+    // Asynchronously push to cloud if Google Sheets is connected
+    const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    if (gasUrl) {
+      batchSyncToGas(gasUrl, {
+        patients,
+        payments,
+        refunds,
+        users,
+        crmEvents,
+        procedures,
+        financingPlans: updatedPlans,
+      }).catch((err) => {
+        console.warn('Sync financing plans to cloud warning:', err);
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 flex flex-col md:flex-row selection:bg-amber-100 selection:text-amber-900">
       {/* Toast Notification */}
@@ -1334,7 +1359,7 @@ export default function App() {
                   rolePrivileges={rolePrivileges}
                   onSaveRolePrivileges={setRolePrivileges}
                   financingPlans={financingPlans}
-                  onSaveFinancingPlans={setFinancingPlans}
+                  onSaveFinancingPlans={handleSaveFinancingPlans}
                   activeUser={activeUser}
                   onNavigateToUsers={() => setActiveTab('users')}
                 />
@@ -1387,6 +1412,7 @@ export default function App() {
         availableProcedures={procedures}
         availableCoupons={coupons}
         availableFinancingPlans={financingPlans}
+        branding={branding}
       />
 
       <EditPatientModal

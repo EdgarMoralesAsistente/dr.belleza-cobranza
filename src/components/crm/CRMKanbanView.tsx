@@ -94,7 +94,7 @@ const TYPE_CONFIG: Record<
     badgeBg: 'bg-blue-50 text-blue-800 border-blue-200',
   },
   confirmacion_abono: {
-    label: 'Abono / Seña',
+    label: 'Abono Inicial / Pago',
     badgeBg: 'bg-teal-50 text-teal-800 border-teal-200',
   },
   otro: {

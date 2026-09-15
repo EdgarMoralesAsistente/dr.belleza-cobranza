@@ -262,7 +262,7 @@ export const CRMEventModal: React.FC<CRMEventModalProps> = ({
                 <option value="vencimiento_cuota">Vencimiento Oficial de Cuota</option>
                 <option value="bienvenida">Bienvenida y Ficha Médica</option>
                 <option value="seguimiento_medico">Seguimiento Médico / Quirófano</option>
-                <option value="confirmacion_abono">Abono / Seña Recibida</option>
+                <option value="confirmacion_abono">Abono Inicial / Pago Recibido</option>
                 <option value="otro">Otro Evento</option>
               </select>
             </div>

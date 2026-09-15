@@ -692,6 +692,32 @@ function sincronizarMasivo(ss, data) {
     formatearEncabezado(crmSheet, SCHEMA.CRM.headers.length);
     data.crmEvents.forEach(function(ev) { guardarEventoCRM(ss, ev); });
   }
+  if (data.procedures && Array.isArray(data.procedures)) {
+    var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
+    procSheet.clearContents();
+    procSheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
+    formatearEncabezado(procSheet, SCHEMA.PROCEDIMIENTOS.headers.length);
+    data.procedures.forEach(function(pr) {
+      procSheet.appendRow([
+        pr.id, pr.code || '', pr.name || '', pr.category || 'Facial',
+        pr.basePrice || 0, pr.durationMinutes || 60, String(pr.requiresOR !== false),
+        pr.doctorCommissionPercent || 50, String(pr.isActive !== false)
+      ]);
+    });
+  }
+  if (data.financingPlans && Array.isArray(data.financingPlans)) {
+    var planSheet = obtenerOCrearHoja(ss, SCHEMA.PLANES);
+    planSheet.clearContents();
+    planSheet.appendRow(SCHEMA.PLANES.headers);
+    formatearEncabezado(planSheet, SCHEMA.PLANES.headers.length);
+    data.financingPlans.forEach(function(pl) {
+      planSheet.appendRow([
+        pl.id, pl.name || '', pl.months || 6, pl.frequency || 'Mensual',
+        pl.installmentsCount || 6, pl.interestRatePercent || 0,
+        pl.downPaymentPercent || 20, String(pl.isActive !== false)
+      ]);
+    });
+  }
   return { status: 'ok', message: 'Sincronización masiva completada' };
 }
 `;

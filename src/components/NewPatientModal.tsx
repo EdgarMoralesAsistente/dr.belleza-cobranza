@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
   UserPlus,
@@ -24,7 +24,7 @@ import {
   CheckCircle2,
   RotateCcw,
 } from 'lucide-react';
-import { Patient, Payment, SurgicalProcedure, DiscountCoupon, FinancingPlan, ScheduledPayment } from '../types';
+import { Patient, Payment, SurgicalProcedure, DiscountCoupon, FinancingPlan, ScheduledPayment, AppBrandingConfig } from '../types';
 import { INITIAL_PROCEDURES, INITIAL_FINANCING_PLANS } from '../services/storage';
 
 const formatDisplayDate = (dateStr: string) => {
@@ -64,6 +64,7 @@ interface NewPatientModalProps {
   availableProcedures?: SurgicalProcedure[];
   availableCoupons?: DiscountCoupon[];
   availableFinancingPlans?: FinancingPlan[];
+  branding?: AppBrandingConfig;
 }
 
 export const NewPatientModal: React.FC<NewPatientModalProps> = ({
@@ -73,6 +74,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
   availableProcedures,
   availableCoupons,
   availableFinancingPlans,
+  branding,
 }) => {
   const procedureCatalog = useMemo(() => {
     if (availableProcedures && availableProcedures.length > 0) {
@@ -137,7 +139,15 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     const firstProc = procedureCatalog[0];
     return firstProc ? firstProc.basePrice : 3200;
   });
-  const [initialPaymentAmount, setInitialPaymentAmount] = useState<number | ''>('');
+  const [isManualInitialPayment, setIsManualInitialPayment] = useState(false);
+  const [initialPaymentAmount, setInitialPaymentAmount] = useState<number | ''>(() => {
+    const firstPlan = financingCatalog[0];
+    const initialCost = procedureCatalog[0] ? procedureCatalog[0].basePrice : 3200;
+    if (firstPlan && firstPlan.downPaymentPercent > 0) {
+      return Math.round((initialCost * firstPlan.downPaymentPercent) / 100);
+    }
+    return '';
+  });
   const [initialPaymentMethod, setInitialPaymentMethod] = useState<
     'Transferencia' | 'Efectivo' | 'Tarjeta de Débito' | 'Tarjeta de Crédito'
   >('Transferencia');
@@ -295,6 +305,37 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     };
   }, [selectedFinancingPlan, totalCost, initialPaymentAmount]);
 
+  // Sincronizar automáticamente el Abono Inicial según el porcentaje del plan seleccionado
+  // mientras la secretaria no haya ingresado un valor manual personalizado
+  useEffect(() => {
+    if (!isManualInitialPayment && selectedFinancingPlan) {
+      const cost = Number(totalCost) || 0;
+      if (selectedFinancingPlan.downPaymentPercent > 0 && cost > 0) {
+        const calculatedDown = Math.round((cost * selectedFinancingPlan.downPaymentPercent) / 100);
+        setInitialPaymentAmount(calculatedDown);
+      } else if (selectedFinancingPlan.downPaymentPercent === 0) {
+        setInitialPaymentAmount('');
+      }
+    }
+  }, [selectedFinancingPlan, totalCost, isManualInitialPayment]);
+
+  // Al abrir el modal se restablece el modo de cálculo automático
+  useEffect(() => {
+    if (isOpen) {
+      setIsManualInitialPayment(false);
+    }
+  }, [isOpen]);
+
+  // Asegurar que el plan seleccionado pertenezca al catálogo disponible actual
+  useEffect(() => {
+    if (
+      filteredFinancingCatalog.length > 0 &&
+      !filteredFinancingCatalog.some((p) => p.id === selectedFinancingPlanId)
+    ) {
+      setSelectedFinancingPlanId(filteredFinancingCatalog[0].id);
+    }
+  }, [filteredFinancingCatalog, selectedFinancingPlanId]);
+
   // Quick preset button for starting date of schedule
   const handleQuickStartDate = (
     type: '7days' | '15days' | '30days' | 'nextMonth1st' | 'nextMonth15th'
@@ -440,7 +481,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
       city: city.trim() || undefined,
       campaign: chosenCampaign || undefined,
       procedure: chosenProcedure,
-      doctor: 'Dr. Jorge Apelencia',
+      doctor: branding?.doctorName || 'Dr. Jorge Apelencia',
       totalCost: cost,
       totalPaid: initialPaid,
       balance: balance,
@@ -468,9 +509,9 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
         amount: initialPaid,
         date: new Date().toISOString().split('T')[0],
         paymentMethod: initialPaymentMethod,
-        reference: initialPaymentRef.trim() || 'Seña / Pago inicial al registrar',
+        reference: initialPaymentRef.trim() || 'Abono Inicial al registrar',
         registeredBy: 'Secretaría Cobranzas',
-        notes: `Pago inicial registrado al dar de alta la paciente. Plan: ${chosenProcedure}`,
+        notes: `Primer abono registrado al dar de alta la paciente. Procedimiento: ${chosenProcedure}`,
       };
     }
 
@@ -493,7 +534,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                 Registrar Nueva Paciente
               </h2>
               <p className="text-xs text-slate-500">
-                Dr. Jorge Apelencia • Presupuesto Quirúrgico & Plan de Cobro
+                {branding?.doctorName || 'Dr. Jorge Apelencia'} • Presupuesto Quirúrgico & Plan de Cobro
               </p>
             </div>
           </div>
@@ -880,12 +921,122 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
             </div>
           )}
 
-          {/* Presupuesto Total y Financiamiento */}
+          {/* 1. TIPO DE FINANCIAMIENTO ELEGIDO (Ahora antes del Plan Económico para calcular el abono inicial según el plan) */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center">
-              <DollarSign className="w-3.5 h-3.5 mr-1 text-[#25D366]" />
-              Plan Económico & Presupuesto Final
-            </h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center">
+                  <CreditCard className="w-3.5 h-3.5 mr-1 text-[#25D366]" />
+                  Tipo de Financiamiento Elegido *
+                </label>
+                <span className="text-[11px] text-slate-500">
+                  Seleccione el plan de cuotas para definir el % de abono inicial y la periodicidad
+                </span>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 self-start sm:self-auto">
+                Conectado con Ajustes
+              </span>
+            </div>
+
+            {/* Filtro rápido por periodicidad de pago */}
+            <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5">
+              {(['all', 'Semanal', 'Quincenal', 'Mensual'] as const).map((freq) => (
+                <button
+                  key={freq}
+                  type="button"
+                  onClick={() => {
+                    setSelectedFrequencyFilter(freq);
+                    const match =
+                      freq === 'all'
+                        ? financingCatalog[0]
+                        : financingCatalog.find((p) => p.frequency === freq);
+                    if (match) {
+                      setSelectedFinancingPlanId(match.id);
+                      setIsManualInitialPayment(false);
+                    }
+                  }}
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-colors cursor-pointer shrink-0 ${
+                    selectedFrequencyFilter === freq
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {freq === 'all' ? 'Todos los plazos' : `Planes ${freq}es`}
+                </button>
+              ))}
+            </div>
+
+            {/* Selector estilizado con iconos */}
+            <div className="relative">
+              <CreditCard className="w-4 h-4 text-[#25D366] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select
+                value={selectedFinancingPlanId}
+                onChange={(e) => {
+                  setSelectedFinancingPlanId(e.target.value);
+                  setIsManualInitialPayment(false);
+                }}
+                className="w-full pl-9 pr-9 py-2.5 text-sm font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/20 focus:border-[#25D366] cursor-pointer appearance-none"
+              >
+                {filteredFinancingCatalog.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name} — {plan.months} meses • {plan.frequency} ({plan.installmentsCount} cuotas{plan.interestRatePercent === 0 ? ' • 0% interés' : ` • +${plan.interestRatePercent}%`})
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+
+            {selectedFinancingPlan && (
+              <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-900 text-white flex items-center space-x-1">
+                    <CalendarClock className="w-3 h-3 text-[#25D366]" />
+                    <span>{selectedFinancingPlan.months} Meses</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                    Frecuencia: {selectedFinancingPlan.frequency}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
+                    {selectedFinancingPlan.installmentsCount} cuotas pactadas
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                      selectedFinancingPlan.interestRatePercent === 0
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-rose-50 text-rose-800 border-rose-200'
+                    }`}
+                  >
+                    {selectedFinancingPlan.interestRatePercent === 0
+                      ? '0% Sin Recargo'
+                      : `+${selectedFinancingPlan.interestRatePercent}% Recargo`}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                    Abono Inicial del plan: {selectedFinancingPlan.downPaymentPercent}%
+                  </span>
+                </div>
+
+                {selectedFinancingPlan.description && (
+                  <p className="text-[11px] text-slate-500 italic">
+                    {selectedFinancingPlan.description}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 2. PLAN ECONÓMICO & PRESUPUESTO FINAL (Calculado a partir del plan de financiamiento elegido arriba) */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center">
+                <DollarSign className="w-3.5 h-3.5 mr-1 text-[#25D366]" />
+                Plan Económico & Presupuesto Final
+              </h3>
+              {selectedFinancingPlan && (
+                <span className="text-[11px] text-slate-500 font-medium">
+                  Calculado para: <strong className="text-slate-800">{selectedFinancingPlan.name}</strong> ({selectedFinancingPlan.frequency})
+                </span>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -912,22 +1063,51 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Seña o Abono Inicial ($)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-800">
+                    Abono Inicial ($)
+                  </label>
+                  {selectedFinancingPlan && selectedFinancingPlan.downPaymentPercent > 0 && (
+                    <span className="text-[10px] text-emerald-800 font-bold bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-300">
+                      {selectedFinancingPlan.downPaymentPercent}% del plan (${financingCalculations?.suggestedDown.toLocaleString('es-AR')} USD)
+                    </span>
+                  )}
+                </div>
                 <input
                   type="number"
                   min="0"
                   step="any"
-                  placeholder="0.00 (Opcional si abona ahora)"
+                  placeholder="0.00 (Primer abono entregado)"
                   value={initialPaymentAmount}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setIsManualInitialPayment(true);
                     setInitialPaymentAmount(
                       e.target.value === '' ? '' : Number(e.target.value)
-                    )
-                  }
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/20"
+                    );
+                  }}
+                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/20 font-bold"
                 />
+                <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                  <span>
+                    {isManualInitialPayment
+                      ? 'Monto personalizado manualmente'
+                      : `Calculado en función del ${selectedFinancingPlan?.downPaymentPercent || 0}% de este plan`}
+                  </span>
+                  {isManualInitialPayment && selectedFinancingPlan && selectedFinancingPlan.downPaymentPercent > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsManualInitialPayment(false);
+                        if (financingCalculations) {
+                          setInitialPaymentAmount(financingCalculations.suggestedDown);
+                        }
+                      }}
+                      className="text-emerald-700 hover:text-emerald-900 font-semibold underline cursor-pointer"
+                    >
+                      Restablecer al {selectedFinancingPlan.downPaymentPercent}% (${financingCalculations?.suggestedDown.toLocaleString()} USD)
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -965,138 +1145,29 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
               </div>
             )}
 
-            {/* Calculated balance preview */}
-            <div className="flex items-center justify-between text-xs pt-1">
-              <span className="text-slate-500 font-medium">Saldo Pendiente Calculado:</span>
-              <span className="font-bold text-slate-900 text-sm">
-                $
-                {Math.max(
-                  0,
-                  (Number(totalCost) || 0) - (Number(initialPaymentAmount) || 0)
-                ).toLocaleString('es-AR')}
-              </span>
-            </div>
-
-            {/* PLAN DE FINANCIAMIENTO CONECTADO */}
-            <div className="pt-3 border-t border-slate-200/80 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center">
-                  <CreditCard className="w-3.5 h-3.5 mr-1 text-[#25D366]" />
-                  Tipo de Financiamiento Elegido *
-                </label>
-                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                  Conectado con Ajustes
+            {/* Calculated balance and installment preview */}
+            <div className="pt-2 border-t border-slate-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div className="flex items-center space-x-2">
+                <span className="text-slate-500 font-medium">Saldo Restante a Financiar:</span>
+                <span className="font-bold text-slate-900 text-sm">
+                  $
+                  {Math.max(
+                    0,
+                    (Number(totalCost) || 0) - (Number(initialPaymentAmount) || 0)
+                  ).toLocaleString('es-AR')}{' '}
+                  USD
                 </span>
               </div>
 
-              {/* Filtro rápido por periodicidad de pago */}
-              <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5">
-                {(['all', 'Semanal', 'Quincenal', 'Mensual'] as const).map((freq) => (
-                  <button
-                    key={freq}
-                    type="button"
-                    onClick={() => {
-                      setSelectedFrequencyFilter(freq);
-                      const match =
-                        freq === 'all'
-                          ? financingCatalog[0]
-                          : financingCatalog.find((p) => p.frequency === freq);
-                      if (match) setSelectedFinancingPlanId(match.id);
-                    }}
-                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-colors cursor-pointer shrink-0 ${
-                      selectedFrequencyFilter === freq
-                        ? 'bg-slate-900 text-white shadow-xs'
-                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {freq === 'all' ? 'Todos los plazos' : `Planes ${freq}es`}
-                  </button>
-                ))}
-              </div>
-
-              {/* Selector estilizado con iconos y sin desbordes ni texto cortado */}
-              <div className="relative">
-                <CreditCard className="w-4 h-4 text-[#25D366] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <select
-                  value={selectedFinancingPlanId}
-                  onChange={(e) => setSelectedFinancingPlanId(e.target.value)}
-                  className="w-full pl-9 pr-9 py-2.5 text-sm font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/20 focus:border-[#25D366] cursor-pointer appearance-none"
-                >
-                  {filteredFinancingCatalog.map((plan) => (
-                    <option key={plan.id} value={plan.id}>
-                      {plan.name} — {plan.months} meses • {plan.frequency} ({plan.installmentsCount} cuotas{plan.interestRatePercent === 0 ? ' • 0% interés' : ` • +${plan.interestRatePercent}%`})
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-
-              {selectedFinancingPlan && (
-                <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-900 text-white flex items-center space-x-1">
-                      <CalendarClock className="w-3 h-3 text-[#25D366]" />
-                      <span>{selectedFinancingPlan.months} Meses</span>
-                    </span>
-                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                      Frecuencia: {selectedFinancingPlan.frequency}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
-                      {selectedFinancingPlan.installmentsCount} cuotas pactadas
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                        selectedFinancingPlan.interestRatePercent === 0
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                          : 'bg-rose-50 text-rose-800 border-rose-200'
-                      }`}
-                    >
-                      {selectedFinancingPlan.interestRatePercent === 0
-                        ? '0% Sin Recargo'
-                        : `+${selectedFinancingPlan.interestRatePercent}% Recargo`}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                      Seña sugerida: {selectedFinancingPlan.downPaymentPercent}%
-                    </span>
-                  </div>
-
-                  {selectedFinancingPlan.description && (
-                    <p className="text-[11px] text-slate-500 italic">
-                      {selectedFinancingPlan.description}
-                    </p>
-                  )}
-
-                  {financingCalculations && (
-                    <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
-                        <span className="text-[11px] text-slate-400 block font-medium">
-                          Valor Estimado de Cuota:
-                        </span>
-                        <div className="flex items-baseline space-x-1">
-                          <span className="text-base font-extrabold text-[#25D366]">
-                            ${financingCalculations.installmentAmount.toLocaleString('es-AR')} USD
-                          </span>
-                          <span className="text-[11px] font-semibold text-slate-600">
-                            / {selectedFinancingPlan.frequency.toLowerCase()}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            ({financingCalculations.installmentsCount} pagos)
-                          </span>
-                        </div>
-                      </div>
-
-                      {selectedFinancingPlan.downPaymentPercent > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setInitialPaymentAmount(financingCalculations.suggestedDown)}
-                          className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0"
-                          title="Copiar seña sugerida del plan al campo de abono inicial"
-                        >
-                          Aplicar seña del plan ({selectedFinancingPlan.downPaymentPercent}% = ${financingCalculations.suggestedDown.toLocaleString()})
-                        </button>
-                      )}
-                    </div>
-                  )}
+              {financingCalculations && selectedFinancingPlan && (
+                <div className="flex items-center space-x-1.5 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                  <span className="text-[11px] text-emerald-800 font-medium">Cuota estimada:</span>
+                  <span className="text-sm font-extrabold text-emerald-700">
+                    ${financingCalculations.installmentAmount.toLocaleString('es-AR')} USD
+                  </span>
+                  <span className="text-[10px] font-semibold text-emerald-800">
+                    / {selectedFinancingPlan.frequency.toLowerCase()} ({financingCalculations.installmentsCount} cuotas)
+                  </span>
                 </div>
               )}
             </div>
@@ -1143,11 +1214,11 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                 )}
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 block font-medium">3. Abono inicial / Seña:</span>
+                <span className="text-[10px] text-slate-500 block font-medium">3. Abono Inicial entregado:</span>
                 <span className={`font-bold ${Number(initialPaymentAmount) > 0 ? 'text-blue-700' : 'text-slate-400'}`}>
                   {Number(initialPaymentAmount) > 0 ? `-$${Number(initialPaymentAmount).toLocaleString('es-AR')} USD` : '$0 USD'}
                 </span>
-                <span className="text-[10px] text-slate-400 block">Deducido del saldo</span>
+                <span className="text-[10px] text-slate-400 block">Deducido del saldo a financiar</span>
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 block font-medium">4. Saldo a financiar:</span>
@@ -1367,7 +1438,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
             </label>
             <textarea
               rows={2}
-              placeholder="Ej. Presupuesto congelado con seña, saldo restante contra fecha quirúrgica..."
+              placeholder="Ej. Presupuesto congelado con abono inicial, saldo restante contra fecha quirúrgica..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/20"

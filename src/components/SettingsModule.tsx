@@ -139,9 +139,9 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
               name: procName.trim(),
               category: procCategory,
               basePrice: Number(procPrice),
-              durationMinutes: Number(procDuration) || 60,
-              requiresOR: procRequiresOR,
-              doctorCommissionPercent: Number(procCommission) || 60,
+              durationMinutes: editingProcedure.durationMinutes || 60,
+              requiresOR: editingProcedure.requiresOR ?? false,
+              doctorCommissionPercent: editingProcedure.doctorCommissionPercent || 60,
               notes: procNotes.trim(),
             }
           : p
@@ -155,9 +155,9 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
         name: procName.trim(),
         category: procCategory,
         basePrice: Number(procPrice),
-        durationMinutes: Number(procDuration) || 60,
-        requiresOR: procRequiresOR,
-        doctorCommissionPercent: Number(procCommission) || 60,
+        durationMinutes: 60,
+        requiresOR: false,
+        doctorCommissionPercent: 60,
         isActive: true,
         notes: procNotes.trim(),
       };
@@ -289,6 +289,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
   const [financingFrequencyFilter, setFinancingFrequencyFilter] = useState<string>('all');
   const [isFinancingModalOpen, setIsFinancingModalOpen] = useState(false);
   const [editingFinancingPlan, setEditingFinancingPlan] = useState<FinancingPlan | null>(null);
+  const [fpError, setFpError] = useState<string | null>(null);
 
   // Form state for financing plan
   const [fpName, setFpName] = useState('');
@@ -327,6 +328,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
     setFpDownPaymentPercent(20);
     setFpDescription('');
     setFpIsActive(true);
+    setFpError(null);
     setIsFinancingModalOpen(true);
   };
 
@@ -340,47 +342,55 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
     setFpDownPaymentPercent(plan.downPaymentPercent);
     setFpDescription(plan.description || '');
     setFpIsActive(plan.isActive);
+    setFpError(null);
     setIsFinancingModalOpen(true);
   };
 
   const handleDuplicateFinancingPlan = (plan: FinancingPlan) => {
     const newPlan: FinancingPlan = {
       ...plan,
-      id: `PLAN-${Date.now().toString().slice(-4)}`,
+      id: `PLAN-${Date.now()}`,
       name: `${plan.name} (Copia)`,
       isActive: true,
     };
-    onSaveFinancingPlans([...financingPlans, newPlan]);
+    onSaveFinancingPlans([newPlan, ...financingPlans]);
+    setFinancingFrequencyFilter('all');
+    setFinancingSearch('');
     showToast(`Plan "${newPlan.name}" duplicado con éxito`);
   };
 
   const handleSaveFinancingPlan = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fpName.trim()) {
-      alert('Por favor ingrese un nombre descriptivo para el plan de financiamiento.');
+    setFpError(null);
+
+    const trimmedName = fpName.trim();
+    if (!trimmedName) {
+      setFpError('Por favor ingrese un nombre descriptivo para el plan de financiamiento.');
       return;
     }
-    if (!fpMonths || fpMonths <= 0) {
-      alert('Por favor especifique una duración en meses válida.');
+    const months = Number(fpMonths);
+    if (!months || months <= 0) {
+      setFpError('Por favor especifique una duración en meses válida (mayor a 0).');
       return;
     }
-    if (!fpInstallmentsCount || fpInstallmentsCount <= 0) {
-      alert('Por favor especifique una cantidad de cuotas válida.');
+    const installments = Number(fpInstallmentsCount);
+    if (!installments || installments <= 0) {
+      setFpError('Por favor especifique una cantidad de cuotas válida (mínimo 1).');
       return;
     }
 
     const interest = Number(fpInterestRate) || 0;
-    const downPayment = Number(fpDownPaymentPercent) || 0;
+    const downPayment = fpDownPaymentPercent === '' ? 20 : Math.max(0, Math.min(100, Number(fpDownPaymentPercent) || 0));
 
     if (editingFinancingPlan) {
       const updated = financingPlans.map((p) =>
         p.id === editingFinancingPlan.id
           ? {
               ...p,
-              name: fpName.trim(),
-              months: Number(fpMonths),
+              name: trimmedName,
+              months,
               frequency: fpFrequency,
-              installmentsCount: Number(fpInstallmentsCount),
+              installmentsCount: installments,
               interestRatePercent: interest,
               downPaymentPercent: downPayment,
               description: fpDescription.trim(),
@@ -392,18 +402,22 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
       showToast('Plan de financiamiento actualizado correctamente');
     } else {
       const newPlan: FinancingPlan = {
-        id: `PLAN-${Date.now().toString().slice(-4)}`,
-        name: fpName.trim(),
-        months: Number(fpMonths),
+        id: `PLAN-${Date.now()}`,
+        name: trimmedName,
+        months,
         frequency: fpFrequency,
-        installmentsCount: Number(fpInstallmentsCount),
+        installmentsCount: installments,
         interestRatePercent: interest,
         downPaymentPercent: downPayment,
         description: fpDescription.trim(),
         isActive: fpIsActive,
       };
-      onSaveFinancingPlans([...financingPlans, newPlan]);
-      showToast('Nuevo plan de financiamiento creado');
+      // Prepend so the new plan is instantly visible at the very top of the list
+      onSaveFinancingPlans([newPlan, ...financingPlans]);
+      // Reset filter and search so the new plan is guaranteed to be shown
+      setFinancingFrequencyFilter('all');
+      setFinancingSearch('');
+      showToast('Nuevo plan de financiamiento creado exitosamente');
     }
     setIsFinancingModalOpen(false);
   };
@@ -660,8 +674,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                     <th className="px-4 py-3">Procedimiento</th>
                     <th className="px-4 py-3">Categoría</th>
                     <th className="px-4 py-3">Precio Base (USD)</th>
-                    <th className="px-4 py-3">Quirófano / Tiempo</th>
-                    <th className="px-4 py-3">Honorarios</th>
                     <th className="px-4 py-3 text-center">Estado</th>
                     <th className="px-4 py-3 text-right">Acciones</th>
                   </tr>
@@ -669,7 +681,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filteredProcedures.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
                         No se encontraron procedimientos con los filtros actuales.
                       </td>
                     </tr>
@@ -709,28 +721,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                         </td>
                         <td className="px-4 py-3 font-bold text-slate-900">
                           ${proc.basePrice.toLocaleString()} USD
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center space-x-1.5">
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                                proc.requiresOR
-                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                  : 'bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
-                            >
-                              {proc.requiresOR ? 'Quirófano' : 'Ambulatorio'}
-                            </span>
-                            <span className="text-[11px] text-slate-500 flex items-center">
-                              <Clock className="w-3 h-3 mr-0.5 text-slate-400" />
-                              {proc.durationMinutes} min
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="font-semibold text-slate-700">
-                            {proc.doctorCommissionPercent}%
-                          </span>
                         </td>
                         <td className="px-4 py-3 text-center">
                           <button
@@ -987,7 +977,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                         </span>
 
                         <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                          Seña: {plan.downPaymentPercent}%
+                          Abono Inicial: {plan.downPaymentPercent}%
                         </span>
                       </div>
 
@@ -1001,7 +991,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                     <div className="pt-3 border-t border-slate-100 bg-slate-50/80 -mx-4 -mb-4 p-3.5 rounded-b-2xl">
                       <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
                         <span className="font-semibold text-slate-600">Simulación $3,000 USD:</span>
-                        <span>Seña: <strong>${sampleDown.toLocaleString()}</strong></span>
+                        <span>Abono Inicial: <strong>${sampleDown.toLocaleString()}</strong></span>
                       </div>
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-slate-400">Cuota estimada:</span>
@@ -1611,7 +1601,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
             </div>
 
             <form onSubmit={handleSaveProcedure} className="p-6 space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Código Único</label>
                   <input
@@ -1620,7 +1610,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                     value={procCode}
                     onChange={(e) => setProcCode(e.target.value)}
                     placeholder="Ej. QX-RINO"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg uppercase font-mono font-bold"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg uppercase font-mono font-bold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                   />
                 </div>
                 <div>
@@ -1630,7 +1620,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                     onChange={(e) =>
                       setProcCategory(e.target.value as SurgicalProcedure['category'])
                     }
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-medium cursor-pointer"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-medium cursor-pointer focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                   >
                     <option value="Facial">Facial</option>
                     <option value="Corporal">Corporal</option>
@@ -1641,80 +1631,40 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Nombre del Procedimiento
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={procName}
-                  onChange={(e) => setProcName(e.target.value)}
-                  placeholder="Ej. Rinoplastia Ultrasónica Estructural"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-medium"
-                />
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div className="sm:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nombre del Procedimiento
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={procName}
+                    onChange={(e) => setProcName(e.target.value)}
+                    placeholder="Ej. Rinoplastia Ultrasónica Estructural"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  />
+                </div>
 
-              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Precio Base (USD)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={procPrice}
-                    onChange={(e) =>
-                      setProcPrice(e.target.value === '' ? '' : Number(e.target.value))
-                    }
-                    placeholder="3200"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">
+                      $
+                    </span>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={procPrice}
+                      onChange={(e) =>
+                        setProcPrice(e.target.value === '' ? '' : Number(e.target.value))
+                      }
+                      placeholder="3200"
+                      className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-lg font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                    />
+                  </div>
                 </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Duración (min)</label>
-                  <input
-                    type="number"
-                    min="10"
-                    value={procDuration}
-                    onChange={(e) =>
-                      setProcDuration(e.target.value === '' ? '' : Number(e.target.value))
-                    }
-                    placeholder="120"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">% Honorarios</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={procCommission}
-                    onChange={(e) =>
-                      setProcCommission(e.target.value === '' ? '' : Number(e.target.value))
-                    }
-                    placeholder="65"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="procRequiresOR"
-                  checked={procRequiresOR}
-                  onChange={(e) => setProcRequiresOR(e.target.checked)}
-                  className="w-4 h-4 rounded text-[#25D366] focus:ring-[#25D366] border-slate-300 cursor-pointer"
-                />
-                <label
-                  htmlFor="procRequiresOR"
-                  className="font-medium text-slate-700 cursor-pointer"
-                >
-                  Requiere reserva de Quirófano Sanatorial (No ambulatorio)
-                </label>
               </div>
 
               <div>
@@ -1722,11 +1672,11 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                   Observaciones / Inclusiones
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={procNotes}
                   onChange={(e) => setProcNotes(e.target.value)}
-                  placeholder="Ej. Incluye faja postquirúrgica, prótesis microtexturadas, etc."
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg resize-none"
+                  placeholder="Ej. Incluye faja postquirúrgica, prótesis microtexturadas, citas de revisión..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg resize-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                 />
               </div>
 
@@ -1924,6 +1874,13 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
             </div>
 
             <form onSubmit={handleSaveFinancingPlan} className="p-6 space-y-4 text-xs">
+              {fpError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center space-x-2 text-rose-700 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                  <span>{fpError}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
                   Nombre del Plan Financiero *
@@ -1932,7 +1889,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                   type="text"
                   required
                   value={fpName}
-                  onChange={(e) => setFpName(e.target.value)}
+                  onChange={(e) => {
+                    setFpName(e.target.value);
+                    if (fpError) setFpError(null);
+                  }}
                   placeholder="Ej. Plan 12 Meses - Quincenal (Sin Recargo)"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg font-medium focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/30 focus:border-[#25D366]"
                 />
@@ -1984,6 +1944,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                     type="number"
                     required
                     min={1}
+                    step="1"
                     value={fpInstallmentsCount}
                     onChange={(e) => setFpInstallmentsCount(Number(e.target.value) || 1)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold"
@@ -2000,7 +1961,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                   <input
                     type="number"
                     min={0}
-                    step="0.5"
+                    step="any"
                     value={fpInterestRate}
                     onChange={(e) =>
                       setFpInterestRate(e.target.value === '' ? '' : Number(e.target.value))
@@ -2015,21 +1976,27 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Seña Mínima (%)
+                    Abono Inicial
                   </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={fpDownPaymentPercent}
-                    onChange={(e) =>
-                      setFpDownPaymentPercent(e.target.value === '' ? '' : Number(e.target.value))
-                    }
-                    placeholder="20"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold"
-                  />
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="any"
+                      value={fpDownPaymentPercent}
+                      onChange={(e) =>
+                        setFpDownPaymentPercent(e.target.value === '' ? '' : Number(e.target.value))
+                      }
+                      placeholder="20"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold pr-7 focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/30 focus:border-[#25D366]"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs pointer-events-none">
+                      %
+                    </span>
+                  </div>
                   <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    Anticipo sugerido
+                    Primer abono entregado por la paciente
                   </span>
                 </div>
               </div>
@@ -2068,7 +2035,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-600 pt-1">
                       <div>
-                        <span className="text-slate-400 block">Anticipo / Seña ({downPercent}%):</span>
+                        <span className="text-slate-400 block">Abono Inicial ({downPercent}%):</span>
                         <strong className="text-slate-800">${sampleDown.toLocaleString()} USD</strong>
                       </div>
                       <div>
@@ -2109,9 +2076,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold shadow-xs cursor-pointer"
+                  id="btn-submit-financing-plan"
+                  className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold shadow-xs cursor-pointer transition-colors"
                 >
-                  {editingFinancingPlan ? 'Guardar Cambios' : 'Crear Plan Financiero'}
+                  {editingFinancingPlan ? 'Guardar Cambios' : 'Crear Plan de Financiamiento'}
                 </button>
               </div>
             </form>

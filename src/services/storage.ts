@@ -223,7 +223,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     paymentMethod: 'Transferencia',
     reference: 'TRANS-BCO-882190',
     registeredBy: 'Secretaría Cobranzas',
-    notes: 'Seña inicial de reserva de fecha',
+    notes: 'Abono inicial de reserva de fecha',
     createdAt: '2026-08-10T14:30:00.000Z',
   },
   {
@@ -866,7 +866,7 @@ export const INITIAL_FINANCING_PLANS: FinancingPlan[] = [
     interestRatePercent: 0,
     downPaymentPercent: 20,
     isActive: true,
-    description: 'Financiamiento directo en 6 cuotas mensuales fijas sin recargo, con 20% de seña para congelar valor.',
+    description: 'Financiamiento directo en 6 cuotas mensuales fijas sin recargo, con 20% de abono inicial para congelar valor.',
   },
   {
     id: 'PLAN-002',
@@ -1117,16 +1117,16 @@ export function generatePatientCRMEvents(
     assignedTo: 'Luciana Gómez (Secretaría)',
   });
 
-  // 2. Si hubo pago inicial o seña registrada
+  // 2. Si hubo abono inicial registrado
   if (initialPaymentAmount && initialPaymentAmount > 0) {
     events.push({
-      id: `CRM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}-seña`,
+      id: `CRM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}-abono`,
       patientId: patient.id,
       patientName: patient.fullName,
       patientPhone: patient.phone,
       type: 'confirmacion_abono',
-      title: `Envío de Comprobante de Seña ($${initialPaymentAmount.toLocaleString()} USD)`,
-      description: `Seña / pago inicial por $${initialPaymentAmount.toLocaleString()} USD recibido para ${patient.fullName}. Presupuesto congelado y quirófano reservado.`,
+      title: `Envío de Comprobante de Abono Inicial ($${initialPaymentAmount.toLocaleString()} USD)`,
+      description: `Abono inicial por $${initialPaymentAmount.toLocaleString()} USD recibido para ${patient.fullName}. Presupuesto congelado y quirófano reservado.`,
       dueDate: regDate,
       dueTime: '11:30',
       status: 'completed',

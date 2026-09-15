@@ -58,7 +58,7 @@ const TYPE_CONFIG: Record<
     textBg: 'bg-blue-500',
   },
   confirmacion_abono: {
-    label: 'Abono / Seña',
+    label: 'Abono Inicial / Pago',
     color: 'teal',
     badgeBg: 'bg-teal-50 border-teal-200 text-teal-800',
     textBg: 'bg-teal-500',
@@ -239,7 +239,7 @@ export const CRMTableView: React.FC<CRMTableViewProps> = ({
             <option value="vencimiento_cuota">Vencimientos de Cuota</option>
             <option value="bienvenida">Bienvenida</option>
             <option value="seguimiento_medico">Seguimiento Médico</option>
-            <option value="confirmacion_abono">Abono / Seña</option>
+            <option value="confirmacion_abono">Abonos Iniciales / Pagos</option>
           </select>
         </div>
       </div>

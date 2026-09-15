@@ -7,7 +7,7 @@ export interface FinancingPlan {
   frequency: PaymentFrequency; // 'Semanal' | 'Quincenal' | 'Mensual'
   installmentsCount: number; // Cantidad total de cuotas calculadas
   interestRatePercent: number; // Tasa de recargo/interés (ej: 0% sin interés, o 8%)
-  downPaymentPercent: number; // Anticipo / Seña mínima sugerida (ej: 20%)
+  downPaymentPercent: number; // Abono Inicial acordado/requerido en el plan (ej: 20%)
   isActive: boolean;
   description?: string;
 }
