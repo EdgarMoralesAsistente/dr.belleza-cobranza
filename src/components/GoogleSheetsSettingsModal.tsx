@@ -456,6 +456,9 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
                   <li className="pl-1">
                     Copia la <strong>URL de la aplicación web</strong> (termina en <code>/exec</code>) y pégala en el campo de arriba.
                   </li>
+                  <li className="pl-1 text-slate-600">
+                    <strong>Para Vercel o Producción (Opcional pero recomendado):</strong> En tu proyecto de Vercel &gt; <em>Settings &gt; Environment Variables</em>, puedes agregar la variable con nombre <code className="font-bold text-emerald-900">GOOGLE_APPS_SCRIPT_URL</code> pegando la URL de Apps Script. Así funcionará automáticamente para cualquier usuario o ventana de incógnito.
+                  </li>
                 </ol>
 
                 {/* Toggle Code Preview */}

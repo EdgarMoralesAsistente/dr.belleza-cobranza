@@ -482,8 +482,12 @@ export function saveLocalRefunds(refunds: Refund[]): void {
 
 export function getEffectiveGasUrl(): string | null {
   const envUrl =
-    (import.meta as any).env?.VITE_GOOGLE_APPS_SCRIPT_URL ||
-    (import.meta as any).env?.GOOGLE_APPS_SCRIPT_URL;
+    (import.meta as any).env?.GOOGLE_APPS_SCRIPT_URL ||
+    (import.meta as any).env?.GAS_URL ||
+    (import.meta as any).env?.GOOGLE_SHEETS_URL ||
+    (import.meta as any).env?.SHEETS_URL ||
+    (typeof process !== 'undefined' && (process.env?.GOOGLE_APPS_SCRIPT_URL || process.env?.GAS_URL || process.env?.GOOGLE_SHEETS_URL)) ||
+    (import.meta as any).env?.VITE_GOOGLE_APPS_SCRIPT_URL;
   if (typeof envUrl === 'string' && envUrl.trim().startsWith('https://script.google.com/')) {
     return envUrl.trim();
   }

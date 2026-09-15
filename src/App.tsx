@@ -92,6 +92,9 @@ import {
   deleteRefundFromGas,
   saveUserToGas,
   deleteUserFromGas,
+  saveProcedureToGas,
+  saveAllProceduresToGas,
+  saveFinancingPlanToGas,
   batchSyncToGas,
 } from './services/gasService';
 import { User } from 'firebase/auth';
@@ -740,7 +743,11 @@ export default function App() {
         setCrmEvents(data.crmEvents);
       }
       if (data.procedures && Array.isArray(data.procedures) && data.procedures.length > 0) {
-        setProcedures(data.procedures);
+        setProcedures((prev) => {
+          const remoteIds = new Set(data.procedures.map((p: SurgicalProcedure) => p.id));
+          const localOnly = prev.filter((p) => !remoteIds.has(p.id));
+          return [...localOnly, ...data.procedures];
+        });
       }
       if (data.financingPlans && Array.isArray(data.financingPlans) && data.financingPlans.length > 0) {
         setFinancingPlans((prev) => {
@@ -1135,6 +1142,37 @@ export default function App() {
     }
   };
 
+  const handleSaveProcedures = async (updatedProcedures: SurgicalProcedure[]) => {
+    setProcedures(updatedProcedures);
+    saveLocalProcedures(updatedProcedures);
+
+    const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    if (gasUrl) {
+      try {
+        try {
+          await saveAllProceduresToGas(gasUrl, updatedProcedures);
+        } catch {
+          await batchSyncToGas(gasUrl, {
+            patients,
+            payments,
+            refunds,
+            users,
+            crmEvents,
+            procedures: updatedProcedures,
+            financingPlans,
+          });
+        }
+        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+        showToast('✓ Procedimiento guardado y sincronizado con Google Sheets');
+      } catch (err: any) {
+        console.error('Error sincronizando procedimientos con Google Sheets:', err);
+        showToast(`⚠️ Guardado localmente. Error al enviar a Google Sheets: ${err?.message || 'Fallo de conexión'}`);
+      }
+    } else {
+      showToast('Procedimiento guardado localmente (conecte Google Sheets para sincronizar)');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 flex flex-col md:flex-row selection:bg-amber-100 selection:text-amber-900">
       {/* Toast Notification */}
@@ -1351,7 +1389,7 @@ export default function App() {
               {activeTab === 'settings' && (
                 <SettingsModule
                   procedures={procedures}
-                  onSaveProcedures={setProcedures}
+                  onSaveProcedures={handleSaveProcedures}
                   coupons={coupons}
                   onSaveCoupons={setCoupons}
                   branding={branding}

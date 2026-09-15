@@ -222,6 +222,21 @@ function doPost(e) {
       case 'SAVE_CRM_EVENT':
         return responderJSON(guardarEventoCRM(ss, payload.event));
 
+      case 'SAVE_PROCEDURE':
+        return responderJSON(guardarProcedimiento(ss, payload.procedure));
+
+      case 'DELETE_PROCEDURE':
+        return responderJSON(borrarProcedimiento(ss, payload.procedureId));
+
+      case 'SAVE_ALL_PROCEDURES':
+        return responderJSON(guardarTodosProcedimientos(ss, payload.procedures));
+
+      case 'SAVE_FINANCING_PLAN':
+        return responderJSON(guardarPlanFinanciamiento(ss, payload.plan));
+
+      case 'DELETE_FINANCING_PLAN':
+        return responderJSON(borrarPlanFinanciamiento(ss, payload.planId));
+
       case 'BATCH_SYNC':
         return responderJSON(sincronizarMasivo(ss, payload));
 
@@ -642,6 +657,108 @@ function guardarEventoCRM(ss, ev) {
     sheet.appendRow(rowData);
   }
   return { status: 'ok', message: 'Evento CRM guardado' };
+}
+
+function guardarProcedimiento(ss, proc) {
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
+  var values = sheet.getDataRange().getValues();
+  var rowIndex = -1;
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(proc.id) || (proc.code && String(values[i][1]).toUpperCase() === String(proc.code).toUpperCase())) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  var rowData = [
+    proc.id,
+    proc.code || '',
+    proc.name || '',
+    proc.category || 'Facial',
+    proc.basePrice || 0,
+    proc.durationMinutes || 60,
+    String(proc.requiresOR !== false),
+    proc.doctorCommissionPercent || 50,
+    String(proc.isActive !== false)
+  ];
+
+  if (rowIndex > 1) {
+    sheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
+  } else {
+    sheet.appendRow(rowData);
+  }
+  return { status: 'ok', message: 'Procedimiento guardado' };
+}
+
+function borrarProcedimiento(ss, procId) {
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(procId)) {
+      sheet.deleteRow(i + 1);
+      return { status: 'ok', message: 'Procedimiento eliminado' };
+    }
+  }
+  return { status: 'ok', message: 'Procedimiento no encontrado' };
+}
+
+function guardarTodosProcedimientos(ss, proceduresList) {
+  var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
+  procSheet.clearContents();
+  procSheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
+  formatearEncabezado(procSheet, SCHEMA.PROCEDIMIENTOS.headers.length);
+  if (Array.isArray(proceduresList)) {
+    proceduresList.forEach(function(pr) {
+      procSheet.appendRow([
+        pr.id, pr.code || '', pr.name || '', pr.category || 'Facial',
+        pr.basePrice || 0, pr.durationMinutes || 60, String(pr.requiresOR !== false),
+        pr.doctorCommissionPercent || 50, String(pr.isActive !== false)
+      ]);
+    });
+  }
+  return { status: 'ok', message: 'Procedimientos actualizados (' + (proceduresList ? proceduresList.length : 0) + ')' };
+}
+
+function guardarPlanFinanciamiento(ss, plan) {
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.PLANES);
+  var values = sheet.getDataRange().getValues();
+  var rowIndex = -1;
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(plan.id)) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  var rowData = [
+    plan.id,
+    plan.name || '',
+    plan.months || 6,
+    plan.frequency || 'Mensual',
+    plan.installmentsCount || 6,
+    plan.interestRatePercent || 0,
+    plan.downPaymentPercent || 20,
+    String(plan.isActive !== false)
+  ];
+
+  if (rowIndex > 1) {
+    sheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
+  } else {
+    sheet.appendRow(rowData);
+  }
+  return { status: 'ok', message: 'Plan de financiamiento guardado' };
+}
+
+function borrarPlanFinanciamiento(ss, planId) {
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.PLANES);
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(planId)) {
+      sheet.deleteRow(i + 1);
+      return { status: 'ok', message: 'Plan eliminado' };
+    }
+  }
+  return { status: 'ok', message: 'Plan no encontrado' };
 }
 
 function sincronizarMasivo(ss, data) {

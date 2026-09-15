@@ -213,6 +213,56 @@ export async function saveCrmEventToGas(gasUrl: string, event: CRMEvent): Promis
 }
 
 /**
+ * Guarda o actualiza un procedimiento quirúrgico en Google Sheets
+ */
+export async function saveProcedureToGas(gasUrl: string, procedure: SurgicalProcedure): Promise<void> {
+  await postToGas(gasUrl, {
+    action: 'SAVE_PROCEDURE',
+    procedure,
+  });
+}
+
+/**
+ * Elimina un procedimiento quirúrgico de Google Sheets
+ */
+export async function deleteProcedureFromGas(gasUrl: string, procedureId: string): Promise<void> {
+  await postToGas(gasUrl, {
+    action: 'DELETE_PROCEDURE',
+    procedureId,
+  });
+}
+
+/**
+ * Guarda todos los procedimientos quirúrgicos en Google Sheets
+ */
+export async function saveAllProceduresToGas(gasUrl: string, procedures: SurgicalProcedure[]): Promise<void> {
+  await postToGas(gasUrl, {
+    action: 'SAVE_ALL_PROCEDURES',
+    procedures,
+  });
+}
+
+/**
+ * Guarda o actualiza un plan de financiamiento en Google Sheets
+ */
+export async function saveFinancingPlanToGas(gasUrl: string, plan: FinancingPlan): Promise<void> {
+  await postToGas(gasUrl, {
+    action: 'SAVE_FINANCING_PLAN',
+    plan,
+  });
+}
+
+/**
+ * Elimina un plan de financiamiento de Google Sheets
+ */
+export async function deleteFinancingPlanFromGas(gasUrl: string, planId: string): Promise<void> {
+  await postToGas(gasUrl, {
+    action: 'DELETE_FINANCING_PLAN',
+    planId,
+  });
+}
+
+/**
  * Sincronización masiva inicial: envía todos los datos locales para poblar Google Sheets
  */
 export async function batchSyncToGas(
