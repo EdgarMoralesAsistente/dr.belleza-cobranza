@@ -253,6 +253,16 @@ export async function saveFinancingPlanToGas(gasUrl: string, plan: FinancingPlan
 }
 
 /**
+ * Guarda la lista completa de planes de financiamiento en Google Sheets
+ */
+export async function saveAllFinancingPlansToGas(gasUrl: string, plans: FinancingPlan[]): Promise<void> {
+  await postToGas(gasUrl, {
+    action: 'SAVE_ALL_FINANCING_PLANS',
+    plans,
+  });
+}
+
+/**
  * Elimina un plan de financiamiento de Google Sheets
  */
 export async function deleteFinancingPlanFromGas(gasUrl: string, planId: string): Promise<void> {

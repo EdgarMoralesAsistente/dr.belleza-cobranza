@@ -12,6 +12,7 @@ export const CODE_GS_SOURCE = `/**
 var SCHEMA = {
   PACIENTES: {
     name: 'Pacientes',
+    aliases: ['pacientes', 'paciente', 'patients', 'patient'],
     headers: [
       'ID Paciente', 'Nombre Completo', 'Teléfono / WhatsApp', 'DNI / Cédula',
       'Email', 'Ciudad', 'Campaña', 'Procedimiento', 'Doctor',
@@ -22,6 +23,7 @@ var SCHEMA = {
   },
   ABONOS: {
     name: 'Abonos',
+    aliases: ['abonos', 'abono', 'pagos', 'pago', 'payments', 'payment'],
     headers: [
       'ID Pago', 'ID Paciente', 'Nombre Paciente', 'Monto ($)', 'Fecha',
       'Método de Pago', 'Nro Referencia', 'Registrado Por', 'Notas', 'Creado En'
@@ -29,6 +31,7 @@ var SCHEMA = {
   },
   REINTEGROS: {
     name: 'Reintegros',
+    aliases: ['reintegros', 'reintegro', 'devoluciones', 'devolucion', 'refunds', 'refund'],
     headers: [
       'ID Reintegro', 'ID Paciente', 'Nombre Paciente', 'Monto ($)', 'Fecha',
       'Motivo', 'Método Devolución', 'Nro Referencia', 'Registrado Por', 'Creado En'
@@ -36,6 +39,7 @@ var SCHEMA = {
   },
   USUARIOS: {
     name: 'Usuarios',
+    aliases: ['usuarios', 'usuario', 'users', 'user'],
     headers: [
       'ID Usuario', 'Nombre Completo', 'Email', 'Rol', 'Teléfono',
       'Contraseña', 'Activo', 'Es Inmutable', 'Fecha Creación', 'Notas'
@@ -43,6 +47,7 @@ var SCHEMA = {
   },
   CRM: {
     name: 'Recordatorios_CRM',
+    aliases: ['recordatorios_crm', 'recordatorios crm', 'recordatorioscrm', 'recordatorios', 'recordatorio', 'crm'],
     headers: [
       'ID Evento', 'ID Paciente', 'Nombre Paciente', 'Teléfono', 'Tipo',
       'Título', 'Descripción', 'Fecha Límite', 'Hora', 'Estado', 'Prioridad',
@@ -51,6 +56,7 @@ var SCHEMA = {
   },
   PROCEDIMIENTOS: {
     name: 'Procedimientos',
+    aliases: ['procedimientos', 'procedimiento', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'catalogoquirurgico', 'procedures', 'procedure'],
     headers: [
       'ID Procedimiento', 'Código', 'Nombre', 'Categoría', 'Precio Base ($)',
       'Duración (min)', 'Requiere Quirófano', 'Comisión Doctor (%)', 'Activo'
@@ -58,12 +64,45 @@ var SCHEMA = {
   },
   PLANES: {
     name: 'Planes_Financiamiento',
+    aliases: ['planes_financiamiento', 'planes financiamiento', 'planesdefinanciamiento', 'planes de financiamiento', 'planes', 'plan', 'financiamiento'],
     headers: [
       'ID Plan', 'Nombre', 'Meses', 'Frecuencia', 'Cuotas', 'Recargo (%)',
       'Anticipo (%)', 'Activo'
     ]
   }
 };
+
+function normalizarTexto(txt) {
+  return String(txt || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s_-]+/g, '');
+}
+
+function buscarHoja(ss, tableDef) {
+  if (!tableDef) return null;
+  var exactSheet = ss.getSheetByName(tableDef.name);
+  if (exactSheet) return exactSheet;
+
+  var sheets = ss.getSheets();
+  var targetNorm = normalizarTexto(tableDef.name);
+  var aliasesNorm = (tableDef.aliases || []).map(normalizarTexto);
+
+  for (var i = 0; i < sheets.length; i++) {
+    var sheetNorm = normalizarTexto(sheets[i].getName());
+    if (sheetNorm === targetNorm) {
+      return sheets[i];
+    }
+    for (var j = 0; j < aliasesNorm.length; j++) {
+      if (sheetNorm === aliasesNorm[j]) {
+        return sheets[i];
+      }
+    }
+  }
+  return null;
+}
 
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
@@ -77,7 +116,7 @@ function inicializarBaseDeDatos() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   for (var key in SCHEMA) {
     var table = SCHEMA[key];
-    var sheet = ss.getSheetByName(table.name);
+    var sheet = buscarHoja(ss, table);
     if (!sheet) {
       sheet = ss.insertSheet(table.name);
     }
@@ -116,7 +155,7 @@ function repararEncabezados() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   for (var key in SCHEMA) {
     var table = SCHEMA[key];
-    var sheet = ss.getSheetByName(table.name);
+    var sheet = buscarHoja(ss, table);
     if (sheet) {
       sheet.getRange(1, 1, 1, table.headers.length).setValues([table.headers]);
       formatearEncabezado(sheet, table.headers.length);
@@ -125,7 +164,7 @@ function repararEncabezados() {
 }
 
 function sembrarDatosIniciales(ss) {
-  var userSheet = ss.getSheetByName(SCHEMA.USUARIOS.name);
+  var userSheet = obtenerOCrearHoja(ss, SCHEMA.USUARIOS);
   if (userSheet && userSheet.getLastRow() <= 1) {
     userSheet.appendRow(['USR-SUPER-EDGAR', 'Edgar Morales', 'edgar@morales.com', 'super_admin', '+5491145678900', '12697670', 'true', 'true', '2026-01-01', 'Super Administrador Permanente']);
     userSheet.appendRow(['USR-101', 'Dr. Jorge Apelencia', 'jorge.apelencia@drbelleza.com', 'super_admin', '+5491145678900', 'jorge2026', 'true', 'false', '2026-01-15', 'Director Médico Titular']);
@@ -133,13 +172,13 @@ function sembrarDatosIniciales(ss) {
     userSheet.appendRow(['USR-105', 'Luciana Gómez', 'luciana.gomez@drbelleza.com', 'asistente', '+5491145678904', 'luciana2026', 'true', 'false', '2026-04-01', 'Secretaría de Consultorio']);
   }
 
-  var procSheet = ss.getSheetByName(SCHEMA.PROCEDIMIENTOS.name);
+  var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
   if (procSheet && procSheet.getLastRow() <= 1) {
     procSheet.appendRow(['PRC-001', 'QX-RINO', 'Rinoplastia Ultrasónica Estructural', 'Facial', 3200, 180, 'true', 65, 'true']);
     procSheet.appendRow(['PRC-002', 'QX-LIPO', 'Lipoescultura HD con Marcación', 'Corporal', 4500, 210, 'true', 60, 'true']);
   }
 
-  var planSheet = ss.getSheetByName(SCHEMA.PLANES.name);
+  var planSheet = obtenerOCrearHoja(ss, SCHEMA.PLANES);
   if (planSheet && planSheet.getLastRow() <= 1) {
     planSheet.appendRow(['PLAN-001', 'Plan 6 Meses - Mensual (Sin Interés)', 6, 'Mensual', 6, 0, 20, 'true']);
     planSheet.appendRow(['PLAN-006', 'Pago Contado / En Una Sola Cuota', 1, 'Mensual', 1, 0, 100, 'true']);
@@ -168,7 +207,7 @@ function doPost(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
     for (var key in SCHEMA) {
-      if (!ss.getSheetByName(SCHEMA[key].name)) {
+      if (!buscarHoja(ss, SCHEMA[key])) {
         inicializarBaseDeDatos();
         break;
       }
@@ -234,6 +273,9 @@ function doPost(e) {
       case 'SAVE_FINANCING_PLAN':
         return responderJSON(guardarPlanFinanciamiento(ss, payload.plan));
 
+      case 'SAVE_ALL_FINANCING_PLANS':
+        return responderJSON(guardarTodosPlanes(ss, payload.plans));
+
       case 'DELETE_FINANCING_PLAN':
         return responderJSON(borrarPlanFinanciamiento(ss, payload.planId));
 
@@ -258,13 +300,13 @@ function responderJSON(obj) {
 function obtenerTodosLosDatos(ss) {
   return {
     status: 'ok',
-    patients: leerHojaComoObjetos(ss.getSheetByName(SCHEMA.PACIENTES.name), mapearPacienteDesdeFila),
-    payments: leerHojaComoObjetos(ss.getSheetByName(SCHEMA.ABONOS.name), mapearPagoDesdeFila),
-    refunds: leerHojaComoObjetos(ss.getSheetByName(SCHEMA.REINTEGROS.name), mapearReintegroDesdeFila),
-    users: leerHojaComoObjetos(ss.getSheetByName(SCHEMA.USUARIOS.name), mapearUsuarioDesdeFila),
-    crmEvents: leerHojaComoObjetos(ss.getSheetByName(SCHEMA.CRM.name), mapearEventoCRMDesdeFila),
-    procedures: leerHojaComoObjetos(ss.getSheetByName(SCHEMA.PROCEDIMIENTOS.name), mapearProcedimientoDesdeFila),
-    financingPlans: leerHojaComoObjetos(ss.getSheetByName(SCHEMA.PLANES.name), mapearPlanDesdeFila),
+    patients: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.PACIENTES), mapearPacienteDesdeFila),
+    payments: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.ABONOS), mapearPagoDesdeFila),
+    refunds: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.REINTEGROS), mapearReintegroDesdeFila),
+    users: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.USUARIOS), mapearUsuarioDesdeFila),
+    crmEvents: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.CRM), mapearEventoCRMDesdeFila),
+    procedures: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS), mapearProcedimientoDesdeFila),
+    financingPlans: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.PLANES), mapearPlanDesdeFila),
     spreadsheetName: ss.getName(),
     spreadsheetId: ss.getId(),
     spreadsheetUrl: ss.getUrl()
@@ -412,7 +454,7 @@ function formatearFecha(valor) {
 }
 
 function obtenerOCrearHoja(ss, tableDef) {
-  var sheet = ss.getSheetByName(tableDef.name);
+  var sheet = buscarHoja(ss, tableDef);
   if (!sheet) {
     sheet = ss.insertSheet(tableDef.name);
     sheet.appendRow(tableDef.headers);
@@ -759,6 +801,28 @@ function borrarPlanFinanciamiento(ss, planId) {
     }
   }
   return { status: 'ok', message: 'Plan no encontrado' };
+}
+
+function guardarTodosPlanes(ss, planesList) {
+  var planSheet = obtenerOCrearHoja(ss, SCHEMA.PLANES);
+  planSheet.clearContents();
+  planSheet.appendRow(SCHEMA.PLANES.headers);
+  formatearEncabezado(planSheet, SCHEMA.PLANES.headers.length);
+  if (Array.isArray(planesList)) {
+    planesList.forEach(function(pl) {
+      planSheet.appendRow([
+        pl.id,
+        pl.name || '',
+        pl.months || 6,
+        pl.frequency || 'Mensual',
+        pl.installmentsCount || 6,
+        pl.interestRatePercent || 0,
+        pl.downPaymentPercent || 20,
+        String(pl.isActive !== false)
+      ]);
+    });
+  }
+  return { status: 'ok', message: 'Planes de financiamiento actualizados (' + (planesList ? planesList.length : 0) + ')' };
 }
 
 function sincronizarMasivo(ss, data) {

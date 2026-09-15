@@ -95,6 +95,7 @@ import {
   saveProcedureToGas,
   saveAllProceduresToGas,
   saveFinancingPlanToGas,
+  saveAllFinancingPlansToGas,
   batchSyncToGas,
 } from './services/gasService';
 import { User } from 'firebase/auth';
@@ -1121,24 +1122,34 @@ export default function App() {
     setIsNewRefundModalOpen(true);
   };
 
-  const handleSaveFinancingPlans = (updatedPlans: FinancingPlan[]) => {
+  const handleSaveFinancingPlans = async (updatedPlans: FinancingPlan[]) => {
     setFinancingPlans(updatedPlans);
     saveLocalFinancingPlans(updatedPlans);
 
-    // Asynchronously push to cloud if Google Sheets is connected
     const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
     if (gasUrl) {
-      batchSyncToGas(gasUrl, {
-        patients,
-        payments,
-        refunds,
-        users,
-        crmEvents,
-        procedures,
-        financingPlans: updatedPlans,
-      }).catch((err) => {
-        console.warn('Sync financing plans to cloud warning:', err);
-      });
+      try {
+        try {
+          await saveAllFinancingPlansToGas(gasUrl, updatedPlans);
+        } catch {
+          await batchSyncToGas(gasUrl, {
+            patients,
+            payments,
+            refunds,
+            users,
+            crmEvents,
+            procedures,
+            financingPlans: updatedPlans,
+          });
+        }
+        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+        showToast('✓ Planes de financiamiento guardados y sincronizados con Google Sheets');
+      } catch (err: any) {
+        console.error('Error sincronizando planes con Google Sheets:', err);
+        showToast(`⚠️ Guardado localmente. Error al enviar a Google Sheets: ${err?.message || 'Fallo de conexión'}`);
+      }
+    } else {
+      showToast('Plan guardado localmente (conecte Google Sheets para sincronizar)');
     }
   };
 
