@@ -439,7 +439,7 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
                     selecciona la función <code className="font-bold text-emerald-900">inicializarBaseDeDatos</code> y haz clic en{' '}
                     <strong className="text-emerald-900">"Ejecutar"</strong>.
                     <span className="block text-[11px] text-slate-600 ml-4 mt-0.5">
-                      (Google te pedirá autorizar permisos una sola vez. Al ejecutarse creará automáticamente las hojas: Pacientes, Abonos, Reintegros, Usuarios, Recordatorios_CRM, Procedimientos y Planes).
+                      (Google te pedirá autorizar permisos una sola vez. Al ejecutarse creará automáticamente las hojas: Pacientes, Abonos, Reintegros, Usuarios, Recordatorios_CRM, Procedimiento y Planes_Financiamiento).
                     </span>
                   </li>
                   <li className="pl-1">

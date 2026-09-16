@@ -141,9 +141,9 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
         name: procName.trim(),
         category: procCategory,
         basePrice: Number(procPrice),
-        durationMinutes: editingProcedure.durationMinutes || 60,
-        requiresOR: editingProcedure.requiresOR ?? false,
-        doctorCommissionPercent: editingProcedure.doctorCommissionPercent || 60,
+        durationMinutes: Number(procDuration) || editingProcedure.durationMinutes || 60,
+        requiresOR: procRequiresOR,
+        doctorCommissionPercent: Number(procCommission) || editingProcedure.doctorCommissionPercent || 60,
         notes: procNotes.trim(),
       };
       const updated = procedures.map((p) =>
@@ -158,9 +158,9 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
         name: procName.trim(),
         category: procCategory,
         basePrice: Number(procPrice),
-        durationMinutes: 60,
-        requiresOR: false,
-        doctorCommissionPercent: 60,
+        durationMinutes: Number(procDuration) || 60,
+        requiresOR: procRequiresOR,
+        doctorCommissionPercent: Number(procCommission) || 60,
         isActive: true,
         notes: procNotes.trim(),
       };

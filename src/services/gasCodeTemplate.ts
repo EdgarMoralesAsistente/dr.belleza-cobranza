@@ -55,8 +55,8 @@ var SCHEMA = {
     ]
   },
   PROCEDIMIENTOS: {
-    name: 'Procedimientos',
-    aliases: ['procedimientos', 'procedimiento', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'catalogoquirurgico', 'procedures', 'procedure'],
+    name: 'Procedimiento',
+    aliases: ['procedimiento', 'procedimientos', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'catalogoquirurgico', 'procedures', 'procedure'],
     headers: [
       'ID Procedimiento', 'Código', 'Nombre', 'Categoría', 'Precio Base ($)',
       'Duración (min)', 'Requiere Quirófano', 'Comisión Doctor (%)', 'Activo'
@@ -241,13 +241,16 @@ function doPost(e) {
 
     switch (action) {
       case 'PING':
+        var procSheetFound = buscarHoja(ss, SCHEMA.PROCEDIMIENTOS);
         return responderJSON({
           status: 'ok',
           message: 'Conexión exitosa con Google Apps Script',
           spreadsheetName: ss.getName(),
           spreadsheetId: ss.getId(),
           spreadsheetUrl: ss.getUrl(),
-          sheetsFound: ss.getSheets().map(function(s) { return s.getName(); })
+          procedureSheetName: procSheetFound ? procSheetFound.getName() : null,
+          sheetsFound: ss.getSheets().map(function(s) { return s.getName(); }),
+          capabilities: ['procedures', 'financing_plans', 'crm_events', 'batch_sync']
         });
 
       case 'GET_ALL':
@@ -473,10 +476,25 @@ function formatearFecha(valor) {
   return String(valor).split('T')[0];
 }
 
+function asegurarDimensionesHoja(sheet, minFilas, minColumnas) {
+  if (!sheet) return;
+  var maxFilas = sheet.getMaxRows();
+  if (maxFilas < minFilas) {
+    sheet.insertRowsAfter(maxFilas, minFilas - maxFilas);
+  }
+  var maxCols = sheet.getMaxColumns();
+  if (maxCols < minColumnas) {
+    sheet.insertColumnsAfter(maxCols, minColumnas - maxCols);
+  }
+}
+
 function obtenerOCrearHoja(ss, tableDef) {
   var sheet = buscarHoja(ss, tableDef);
   if (!sheet) {
     sheet = ss.insertSheet(tableDef.name);
+    sheet.appendRow(tableDef.headers);
+    formatearEncabezado(sheet, tableDef.headers.length);
+  } else if (sheet.getLastRow() === 0) {
     sheet.appendRow(tableDef.headers);
     formatearEncabezado(sheet, tableDef.headers.length);
   }
@@ -722,34 +740,43 @@ function guardarEventoCRM(ss, ev) {
 }
 
 function guardarProcedimiento(ss, proc) {
+  if (!proc) return { status: 'error', message: 'Procedimiento no proporcionado' };
   var sheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
   for (var i = 1; i < values.length; i++) {
-    if (String(values[i][0]) === String(proc.id) || (proc.code && String(values[i][1]).toUpperCase() === String(proc.code).toUpperCase())) {
+    var rowId = String(values[i][0] || '');
+    var rowCode = String(values[i][1] || '').toUpperCase();
+    var rowName = String(values[i][2] || '').trim().toLowerCase();
+    if (
+      (proc.id && rowId === String(proc.id)) ||
+      (proc.code && rowCode && rowCode === String(proc.code).toUpperCase()) ||
+      (proc.name && rowName && rowName === String(proc.name).trim().toLowerCase())
+    ) {
       rowIndex = i + 1;
       break;
     }
   }
 
   var rowData = [
-    proc.id,
+    proc.id || ('PRC-' + String(new Date().getTime()).slice(-4)),
     proc.code || '',
     proc.name || '',
     proc.category || 'Facial',
-    proc.basePrice || 0,
-    proc.durationMinutes || 60,
-    String(proc.requiresOR !== false),
-    proc.doctorCommissionPercent || 50,
-    String(proc.isActive !== false)
+    Number(proc.basePrice) || 0,
+    Number(proc.durationMinutes) || 60,
+    proc.requiresOR !== false ? 'TRUE' : 'FALSE',
+    Number(proc.doctorCommissionPercent) || 50,
+    proc.isActive !== false ? 'TRUE' : 'FALSE'
   ];
 
   if (rowIndex > 1) {
+    asegurarDimensionesHoja(sheet, rowIndex, rowData.length);
     sheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
   } else {
     sheet.appendRow(rowData);
   }
-  return { status: 'ok', message: 'Procedimiento guardado' };
+  return { status: 'ok', message: 'Procedimiento guardado en hoja ' + sheet.getName(), sheetName: sheet.getName() };
 }
 
 function borrarProcedimiento(ss, procId) {
@@ -783,9 +810,10 @@ function guardarTodosProcedimientos(ss, proceduresList) {
         pr.isActive !== false ? 'TRUE' : 'FALSE'
       ];
     });
+    asegurarDimensionesHoja(procSheet, 1 + rows.length, SCHEMA.PROCEDIMIENTOS.headers.length);
     procSheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
   }
-  return { status: 'ok', message: 'Procedimientos actualizados (' + (proceduresList ? proceduresList.length : 0) + ')' };
+  return { status: 'ok', message: 'Procedimientos actualizados en hoja ' + procSheet.getName() + ' (' + (proceduresList ? proceduresList.length : 0) + ')', sheetName: procSheet.getName() };
 }
 
 function guardarPlanFinanciamiento(ss, plan) {
@@ -802,15 +830,16 @@ function guardarPlanFinanciamiento(ss, plan) {
   var rowData = [
     plan.id,
     plan.name || '',
-    plan.months || 6,
+    Number(plan.months) || 6,
     plan.frequency || 'Mensual',
-    plan.installmentsCount || 6,
-    plan.interestRatePercent || 0,
-    plan.downPaymentPercent || 20,
-    String(plan.isActive !== false)
+    Number(plan.installmentsCount) || 6,
+    Number(plan.interestRatePercent) || 0,
+    Number(plan.downPaymentPercent) || 20,
+    plan.isActive !== false ? 'TRUE' : 'FALSE'
   ];
 
   if (rowIndex > 1) {
+    asegurarDimensionesHoja(sheet, rowIndex, rowData.length);
     sheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
   } else {
     sheet.appendRow(rowData);
@@ -848,6 +877,7 @@ function guardarTodosPlanes(ss, planesList) {
         pl.isActive !== false ? 'TRUE' : 'FALSE'
       ];
     });
+    asegurarDimensionesHoja(planSheet, 1 + rows.length, SCHEMA.PLANES.headers.length);
     planSheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
   }
   return { status: 'ok', message: 'Planes de financiamiento actualizados (' + (planesList ? planesList.length : 0) + ')' };
@@ -919,6 +949,7 @@ function sincronizarMasivo(ss, data) {
         pr.isActive !== false ? 'TRUE' : 'FALSE'
       ];
     });
+    asegurarDimensionesHoja(procSheet, 1 + procRows.length, SCHEMA.PROCEDIMIENTOS.headers.length);
     procSheet.getRange(2, 1, procRows.length, procRows[0].length).setValues(procRows);
   }
   if (data.financingPlans && Array.isArray(data.financingPlans) && data.financingPlans.length > 0) {
@@ -938,6 +969,7 @@ function sincronizarMasivo(ss, data) {
         pl.isActive !== false ? 'TRUE' : 'FALSE'
       ];
     });
+    asegurarDimensionesHoja(planSheet, 1 + planRows.length, SCHEMA.PLANES.headers.length);
     planSheet.getRange(2, 1, planRows.length, planRows[0].length).setValues(planRows);
   }
   return { status: 'ok', message: 'Sincronización masiva completada' };

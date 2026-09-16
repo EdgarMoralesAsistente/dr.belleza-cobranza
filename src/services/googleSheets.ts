@@ -5,9 +5,134 @@ export const SHEET_NAMES = {
   PAYMENTS: 'Historial de Pagos',
   REFUNDS: 'Historial de Reintegros',
   USERS: 'Usuarios',
-  PROCEDURES: 'Procedimientos',
+  PROCEDURES: 'Procedimiento', // Soporta 'Procedimiento' (singular) y 'Procedimientos' (plural)
   PLANES: 'Planes_Financiamiento',
 };
+
+// Aliases para resolver nombres dinámicos de pestañas en Google Sheets
+export const SHEET_ALIASES: Record<string, string[]> = {
+  [SHEET_NAMES.PROCEDURES]: ['procedimiento', 'procedimientos', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'procedures', 'procedure'],
+  [SHEET_NAMES.PLANES]: ['planes_financiamiento', 'planes financiamiento', 'planes', 'plan', 'financiamiento'],
+  [SHEET_NAMES.PATIENTS]: ['pacientes', 'paciente', 'patients', 'patient'],
+  [SHEET_NAMES.PAYMENTS]: ['historial de pagos', 'historial_de_pagos', 'abonos', 'abono', 'pagos', 'pago', 'payments'],
+  [SHEET_NAMES.REFUNDS]: ['historial de reintegros', 'historial_de_reintegros', 'reintegros', 'reintegro', 'devoluciones', 'refunds'],
+  [SHEET_NAMES.USERS]: ['usuarios', 'usuario', 'users', 'user'],
+};
+
+// Cache de pestañas encontradas por cada spreadsheetId
+const tabNameCache = new Map<string, string>();
+
+function normalizeTabName(name: string): string {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s_-]+/g, '');
+}
+
+/**
+ * Resuelve el nombre real de la pestaña en la hoja de cálculo de Google.
+ * Si la pestaña no existe (por ejemplo 'Procedimiento'), la crea automáticamente
+ * con la estructura adecuada de encabezados para evitar errores 400.
+ */
+export async function resolveSheetTabName(
+  accessToken: string,
+  spreadsheetId: string,
+  preferredName: string,
+  aliases: string[] = [],
+  headersToInit?: string[]
+): Promise<string> {
+  const cacheKey = `${spreadsheetId}::${preferredName}`;
+  if (tabNameCache.has(cacheKey)) {
+    return tabNameCache.get(cacheKey)!;
+  }
+
+  try {
+    const metaRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    if (metaRes.ok) {
+      const meta = await metaRes.json();
+      const sheets = meta.sheets || [];
+      const targetNorm = normalizeTabName(preferredName);
+      const allAliasesNorm = [targetNorm, ...aliases.map(normalizeTabName)];
+
+      // 1. Coincidencia exacta
+      for (const s of sheets) {
+        const title = s?.properties?.title;
+        if (title && title.toLowerCase() === preferredName.toLowerCase()) {
+          tabNameCache.set(cacheKey, title);
+          return title;
+        }
+      }
+
+      // 2. Coincidencia normalizada o por alias (e.g. 'Procedimiento' vs 'Procedimientos')
+      for (const s of sheets) {
+        const title = s?.properties?.title;
+        if (!title) continue;
+        const norm = normalizeTabName(title);
+        if (allAliasesNorm.includes(norm)) {
+          tabNameCache.set(cacheKey, title);
+          return title;
+        }
+      }
+
+      // 3. No existe: crear la pestaña en la hoja de cálculo
+      try {
+        const addRes = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              requests: [
+                {
+                  addSheet: {
+                    properties: {
+                      title: preferredName,
+                      gridProperties: { rowCount: 100, columnCount: 15, frozenRowCount: 1 },
+                    },
+                  },
+                },
+              ],
+            }),
+          }
+        );
+
+        if (addRes.ok && headersToInit && headersToInit.length > 0) {
+          await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${preferredName}'!A1?valueInputOption=USER_ENTERED`,
+            {
+              method: 'PUT',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                values: [headersToInit],
+              }),
+            }
+          );
+        }
+      } catch (addErr) {
+        console.warn('Error al auto-crear pestaña en Google Sheets:', addErr);
+      }
+    }
+  } catch (err) {
+    console.warn('Error resolviendo pestaña de Google Sheet:', err);
+  }
+
+  tabNameCache.set(cacheKey, preferredName);
+  return preferredName;
+}
 
 const PATIENT_HEADERS = [
   'ID Paciente',
@@ -123,6 +248,18 @@ export async function createDrBellezaSpreadsheet(accessToken: string): Promise<{
           gridProperties: { rowCount: 50, columnCount: 12, frozenRowCount: 1 },
         },
       },
+      {
+        properties: {
+          title: SHEET_NAMES.PROCEDURES,
+          gridProperties: { rowCount: 50, columnCount: 12, frozenRowCount: 1 },
+        },
+      },
+      {
+        properties: {
+          title: SHEET_NAMES.PLANES,
+          gridProperties: { rowCount: 30, columnCount: 10, frozenRowCount: 1 },
+        },
+      },
     ],
   };
 
@@ -171,6 +308,14 @@ export async function createDrBellezaSpreadsheet(accessToken: string): Promise<{
           {
             range: `'${SHEET_NAMES.USERS}'!A1:J1`,
             values: [USER_HEADERS],
+          },
+          {
+            range: `'${SHEET_NAMES.PROCEDURES}'!A1:I1`,
+            values: [PROCEDURE_HEADERS],
+          },
+          {
+            range: `'${SHEET_NAMES.PLANES}'!A1:H1`,
+            values: [FINANCING_PLAN_HEADERS],
           },
         ],
       }),
@@ -299,6 +444,13 @@ export async function syncAllToGoogleSheet(
   procedures?: SurgicalProcedure[],
   financingPlans?: FinancingPlan[]
 ): Promise<void> {
+  const patientTab = await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.PATIENTS, SHEET_ALIASES[SHEET_NAMES.PATIENTS], PATIENT_HEADERS);
+  const paymentTab = await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.PAYMENTS, SHEET_ALIASES[SHEET_NAMES.PAYMENTS], PAYMENT_HEADERS);
+  const refundTab = await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.REFUNDS, SHEET_ALIASES[SHEET_NAMES.REFUNDS], REFUND_HEADERS);
+  const userTab = users ? await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.USERS, SHEET_ALIASES[SHEET_NAMES.USERS], USER_HEADERS) : SHEET_NAMES.USERS;
+  const procTab = procedures ? await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.PROCEDURES, SHEET_ALIASES[SHEET_NAMES.PROCEDURES], PROCEDURE_HEADERS) : SHEET_NAMES.PROCEDURES;
+  const planTab = financingPlans ? await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.PLANES, SHEET_ALIASES[SHEET_NAMES.PLANES], FINANCING_PLAN_HEADERS) : SHEET_NAMES.PLANES;
+
   const patientRows = [PATIENT_HEADERS, ...patients.map(patientToRow)];
   const paymentRows = [PAYMENT_HEADERS, ...payments.map(paymentToRow)];
   const refundRows = [REFUND_HEADERS, ...refunds.map(refundToRow)];
@@ -307,18 +459,18 @@ export async function syncAllToGoogleSheet(
   const planRows = financingPlans ? [FINANCING_PLAN_HEADERS, ...financingPlans.map(planToRow)] : [];
 
   const rangesToClear = [
-    `'${SHEET_NAMES.PATIENTS}'!A1:Z`,
-    `'${SHEET_NAMES.PAYMENTS}'!A1:Z`,
-    `'${SHEET_NAMES.REFUNDS}'!A1:Z`,
+    `'${patientTab}'!A1:Z`,
+    `'${paymentTab}'!A1:Z`,
+    `'${refundTab}'!A1:Z`,
   ];
   if (users && users.length > 0) {
-    rangesToClear.push(`'${SHEET_NAMES.USERS}'!A1:Z`);
+    rangesToClear.push(`'${userTab}'!A1:Z`);
   }
   if (procedures && procedures.length > 0) {
-    rangesToClear.push(`'${SHEET_NAMES.PROCEDURES}'!A1:Z`);
+    rangesToClear.push(`'${procTab}'!A1:Z`);
   }
   if (financingPlans && financingPlans.length > 0) {
-    rangesToClear.push(`'${SHEET_NAMES.PLANES}'!A1:Z`);
+    rangesToClear.push(`'${planTab}'!A1:Z`);
   }
 
   // Clear existing ranges to avoid orphaned leftover rows
@@ -339,33 +491,33 @@ export async function syncAllToGoogleSheet(
 
   const updateData: any[] = [
     {
-      range: `'${SHEET_NAMES.PATIENTS}'!A1`,
+      range: `'${patientTab}'!A1`,
       values: patientRows,
     },
     {
-      range: `'${SHEET_NAMES.PAYMENTS}'!A1`,
+      range: `'${paymentTab}'!A1`,
       values: paymentRows,
     },
     {
-      range: `'${SHEET_NAMES.REFUNDS}'!A1`,
+      range: `'${refundTab}'!A1`,
       values: refundRows,
     },
   ];
   if (users && users.length > 0) {
     updateData.push({
-      range: `'${SHEET_NAMES.USERS}'!A1`,
+      range: `'${userTab}'!A1`,
       values: userRows,
     });
   }
   if (procedures && procedures.length > 0) {
     updateData.push({
-      range: `'${SHEET_NAMES.PROCEDURES}'!A1`,
+      range: `'${procTab}'!A1`,
       values: procedureRows,
     });
   }
   if (financingPlans && financingPlans.length > 0) {
     updateData.push({
-      range: `'${SHEET_NAMES.PLANES}'!A1`,
+      range: `'${planTab}'!A1`,
       values: planRows,
     });
   }
@@ -398,13 +550,35 @@ export async function syncAllToGoogleSheet(
 export async function fetchAllFromGoogleSheet(
   accessToken: string,
   spreadsheetId: string
-): Promise<{ patients: Patient[]; payments: Payment[]; refunds: Refund[]; users?: SystemUser[] } | null> {
+): Promise<{
+  patients: Patient[];
+  payments: Payment[];
+  refunds: Refund[];
+  users?: SystemUser[];
+  procedures?: SurgicalProcedure[];
+  financingPlans?: FinancingPlan[];
+} | null> {
   try {
+    const procTab = await resolveSheetTabName(
+      accessToken,
+      spreadsheetId,
+      SHEET_NAMES.PROCEDURES,
+      SHEET_ALIASES[SHEET_NAMES.PROCEDURES]
+    );
+    const planTab = await resolveSheetTabName(
+      accessToken,
+      spreadsheetId,
+      SHEET_NAMES.PLANES,
+      SHEET_ALIASES[SHEET_NAMES.PLANES]
+    );
+
     const ranges = [
       `'${SHEET_NAMES.PATIENTS}'!A2:M`,
       `'${SHEET_NAMES.PAYMENTS}'!A2:J`,
       `'${SHEET_NAMES.REFUNDS}'!A2:J`,
       `'${SHEET_NAMES.USERS}'!A2:J`,
+      `'${procTab}'!A2:I`,
+      `'${planTab}'!A2:H`,
     ];
     const encodedRanges = ranges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
 
@@ -435,6 +609,8 @@ export async function fetchAllFromGoogleSheet(
     const rawPayments = valueRanges[1]?.values || [];
     const rawRefunds = valueRanges[2]?.values || [];
     const rawUsers = valueRanges[3]?.values || [];
+    const rawProcedures = valueRanges[4]?.values || [];
+    const rawPlans = valueRanges[5]?.values || [];
 
     const patients: Patient[] = rawPatients
       .filter((row: any[]) => row && row[0])
@@ -506,7 +682,41 @@ export async function fetchAllFromGoogleSheet(
         notes: row[9] ? String(row[9]) : '',
       }));
 
-    return { patients, payments, refunds, users };
+    const procedures: SurgicalProcedure[] = rawProcedures
+      .filter((row: any[]) => row && row[0])
+      .map((row: any[]) => ({
+        id: String(row[0]),
+        code: String(row[1] || ''),
+        name: String(row[2] || ''),
+        category: (row[3] as any) || 'Facial',
+        basePrice: Number(row[4]) || 0,
+        durationMinutes: Number(row[5]) || 60,
+        requiresOR: String(row[6]).toUpperCase() !== 'FALSE',
+        doctorCommissionPercent: Number(row[7]) || 50,
+        isActive: String(row[8]).toUpperCase() !== 'FALSE',
+      }));
+
+    const financingPlans: FinancingPlan[] = rawPlans
+      .filter((row: any[]) => row && row[0])
+      .map((row: any[]) => ({
+        id: String(row[0]),
+        name: String(row[1] || ''),
+        months: Number(row[2]) || 6,
+        frequency: (row[3] as any) || 'Mensual',
+        installmentsCount: Number(row[4]) || 6,
+        interestRatePercent: Number(row[5]) || 0,
+        downPaymentPercent: Number(row[6]) || 20,
+        isActive: String(row[7]).toUpperCase() !== 'FALSE',
+      }));
+
+    return {
+      patients,
+      payments,
+      refunds,
+      users: users.length > 0 ? users : undefined,
+      procedures: procedures.length > 0 ? procedures : undefined,
+      financingPlans: financingPlans.length > 0 ? financingPlans : undefined,
+    };
   } catch (error) {
     console.error('Error fetching sheet data:', error);
     throw error;
@@ -797,11 +1007,18 @@ export async function syncAllProceduresToGoogleSheet(
   spreadsheetId: string,
   procedures: SurgicalProcedure[]
 ): Promise<void> {
+  const targetTab = await resolveSheetTabName(
+    accessToken,
+    spreadsheetId,
+    SHEET_NAMES.PROCEDURES,
+    SHEET_ALIASES[SHEET_NAMES.PROCEDURES],
+    PROCEDURE_HEADERS
+  );
   const rows = [PROCEDURE_HEADERS, ...procedures.map(procedureToRow)];
 
   // Clear existing catalog to prevent stale or duplicate entries
   try {
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A1:Z:clear`, {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A1:Z:clear`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -813,7 +1030,7 @@ export async function syncAllProceduresToGoogleSheet(
   }
 
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A1?valueInputOption=USER_ENTERED`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A1?valueInputOption=USER_ENTERED`,
     {
       method: 'PUT',
       headers: {
@@ -840,9 +1057,16 @@ export async function appendProcedureToGoogleSheet(
   spreadsheetId: string,
   proc: SurgicalProcedure
 ): Promise<void> {
+  const targetTab = await resolveSheetTabName(
+    accessToken,
+    spreadsheetId,
+    SHEET_NAMES.PROCEDURES,
+    SHEET_ALIASES[SHEET_NAMES.PROCEDURES],
+    PROCEDURE_HEADERS
+  );
   const row = procedureToRow(proc);
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A:I:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A:I:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     {
       method: 'POST',
       headers: {
@@ -870,8 +1094,15 @@ export async function updateProcedureInGoogleSheet(
   proc: SurgicalProcedure
 ): Promise<void> {
   try {
+    const targetTab = await resolveSheetTabName(
+      accessToken,
+      spreadsheetId,
+      SHEET_NAMES.PROCEDURES,
+      SHEET_ALIASES[SHEET_NAMES.PROCEDURES],
+      PROCEDURE_HEADERS
+    );
     const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A:B`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A:B`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
@@ -895,7 +1126,7 @@ export async function updateProcedureInGoogleSheet(
     if (targetRowIndex > 1) {
       const row = procedureToRow(proc);
       await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A${targetRowIndex}:I${targetRowIndex}?valueInputOption=USER_ENTERED`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A${targetRowIndex}:I${targetRowIndex}?valueInputOption=USER_ENTERED`,
         {
           method: 'PUT',
           headers: {
@@ -924,8 +1155,15 @@ export async function deleteProcedureFromGoogleSheet(
   procedureId: string
 ): Promise<void> {
   try {
+    const targetTab = await resolveSheetTabName(
+      accessToken,
+      spreadsheetId,
+      SHEET_NAMES.PROCEDURES,
+      SHEET_ALIASES[SHEET_NAMES.PROCEDURES],
+      PROCEDURE_HEADERS
+    );
     const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A:A`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A:A`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
@@ -937,7 +1175,7 @@ export async function deleteProcedureFromGoogleSheet(
       if (rows[i] && String(rows[i][0]) === String(procedureId)) {
         const rowIdx = i + 1;
         await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A${rowIdx}:I${rowIdx}:clear`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A${rowIdx}:I${rowIdx}:clear`,
           {
             method: 'POST',
             headers: {
@@ -962,10 +1200,17 @@ export async function syncAllPlansToGoogleSheet(
   spreadsheetId: string,
   plans: FinancingPlan[]
 ): Promise<void> {
+  const targetTab = await resolveSheetTabName(
+    accessToken,
+    spreadsheetId,
+    SHEET_NAMES.PLANES,
+    SHEET_ALIASES[SHEET_NAMES.PLANES],
+    FINANCING_PLAN_HEADERS
+  );
   const rows = [FINANCING_PLAN_HEADERS, ...plans.map(planToRow)];
 
   try {
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A1:Z:clear`, {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A1:Z:clear`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -977,7 +1222,7 @@ export async function syncAllPlansToGoogleSheet(
   }
 
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A1?valueInputOption=USER_ENTERED`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A1?valueInputOption=USER_ENTERED`,
     {
       method: 'PUT',
       headers: {
@@ -1004,9 +1249,16 @@ export async function appendPlanToGoogleSheet(
   spreadsheetId: string,
   plan: FinancingPlan
 ): Promise<void> {
+  const targetTab = await resolveSheetTabName(
+    accessToken,
+    spreadsheetId,
+    SHEET_NAMES.PLANES,
+    SHEET_ALIASES[SHEET_NAMES.PLANES],
+    FINANCING_PLAN_HEADERS
+  );
   const row = planToRow(plan);
   await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A:H:append?valueInputOption=USER_ENTERED`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A:H:append?valueInputOption=USER_ENTERED`,
     {
       method: 'POST',
       headers: {
