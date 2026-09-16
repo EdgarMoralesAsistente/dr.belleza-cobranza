@@ -42,7 +42,8 @@ import {
 
 interface SettingsModuleProps {
   procedures: SurgicalProcedure[];
-  onSaveProcedures: (procedures: SurgicalProcedure[]) => void;
+  onSaveProcedures: (procedures: SurgicalProcedure[], targetProcedure?: SurgicalProcedure) => void;
+  onDeleteProcedure?: (procedureId: string) => void;
   coupons: DiscountCoupon[];
   onSaveCoupons: (coupons: DiscountCoupon[]) => void;
   branding: AppBrandingConfig;
@@ -50,7 +51,8 @@ interface SettingsModuleProps {
   rolePrivileges: RolePrivilege[];
   onSaveRolePrivileges: (privileges: RolePrivilege[]) => void;
   financingPlans: FinancingPlan[];
-  onSaveFinancingPlans: (plans: FinancingPlan[]) => void;
+  onSaveFinancingPlans: (plans: FinancingPlan[], targetPlan?: FinancingPlan) => void;
+  onDeleteFinancingPlan?: (planId: string) => void;
   activeUser?: SystemUser | null;
   onNavigateToUsers?: () => void;
 }
@@ -60,6 +62,7 @@ type SettingsTab = 'procedures' | 'financing' | 'coupons' | 'roles' | 'branding'
 export const SettingsModule: React.FC<SettingsModuleProps> = ({
   procedures,
   onSaveProcedures,
+  onDeleteProcedure,
   coupons,
   onSaveCoupons,
   branding,
@@ -68,6 +71,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
   onSaveRolePrivileges,
   financingPlans,
   onSaveFinancingPlans,
+  onDeleteFinancingPlan,
   activeUser,
   onNavigateToUsers,
 }) => {
@@ -131,22 +135,21 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
     }
 
     if (editingProcedure) {
+      const updatedProc: SurgicalProcedure = {
+        ...editingProcedure,
+        code: procCode.trim().toUpperCase(),
+        name: procName.trim(),
+        category: procCategory,
+        basePrice: Number(procPrice),
+        durationMinutes: editingProcedure.durationMinutes || 60,
+        requiresOR: editingProcedure.requiresOR ?? false,
+        doctorCommissionPercent: editingProcedure.doctorCommissionPercent || 60,
+        notes: procNotes.trim(),
+      };
       const updated = procedures.map((p) =>
-        p.id === editingProcedure.id
-          ? {
-              ...p,
-              code: procCode.trim().toUpperCase(),
-              name: procName.trim(),
-              category: procCategory,
-              basePrice: Number(procPrice),
-              durationMinutes: editingProcedure.durationMinutes || 60,
-              requiresOR: editingProcedure.requiresOR ?? false,
-              doctorCommissionPercent: editingProcedure.doctorCommissionPercent || 60,
-              notes: procNotes.trim(),
-            }
-          : p
+        p.id === editingProcedure.id ? updatedProc : p
       );
-      onSaveProcedures(updated);
+      onSaveProcedures(updated, updatedProc);
       showToast('Procedimiento quirúrgico actualizado con éxito');
     } else {
       const newProc: SurgicalProcedure = {
@@ -161,23 +164,28 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
         isActive: true,
         notes: procNotes.trim(),
       };
-      onSaveProcedures([newProc, ...procedures]);
+      onSaveProcedures([newProc, ...procedures], newProc);
       showToast('Nuevo procedimiento agregado al catálogo quirúrgico');
     }
     setIsProcedureModalOpen(false);
   };
 
   const handleToggleProcedureActive = (id: string) => {
-    const updated = procedures.map((p) =>
-      p.id === id ? { ...p, isActive: !p.isActive } : p
-    );
-    onSaveProcedures(updated);
+    const target = procedures.find((p) => p.id === id);
+    if (!target) return;
+    const toggled = { ...target, isActive: !target.isActive };
+    const updated = procedures.map((p) => (p.id === id ? toggled : p));
+    onSaveProcedures(updated, toggled);
     showToast('Estado del procedimiento actualizado');
   };
 
   const handleDeleteProcedure = (id: string, name: string) => {
     if (confirm(`¿Desea eliminar el procedimiento "${name}" del catálogo?`)) {
-      onSaveProcedures(procedures.filter((p) => p.id !== id));
+      if (onDeleteProcedure) {
+        onDeleteProcedure(id);
+      } else {
+        onSaveProcedures(procedures.filter((p) => p.id !== id));
+      }
       showToast('Procedimiento eliminado');
     }
   };
@@ -383,22 +391,21 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
     const downPayment = fpDownPaymentPercent === '' ? 20 : Math.max(0, Math.min(100, Number(fpDownPaymentPercent) || 0));
 
     if (editingFinancingPlan) {
+      const updatedPlan: FinancingPlan = {
+        ...editingFinancingPlan,
+        name: trimmedName,
+        months,
+        frequency: fpFrequency,
+        installmentsCount: installments,
+        interestRatePercent: interest,
+        downPaymentPercent: downPayment,
+        description: fpDescription.trim(),
+        isActive: fpIsActive,
+      };
       const updated = financingPlans.map((p) =>
-        p.id === editingFinancingPlan.id
-          ? {
-              ...p,
-              name: trimmedName,
-              months,
-              frequency: fpFrequency,
-              installmentsCount: installments,
-              interestRatePercent: interest,
-              downPaymentPercent: downPayment,
-              description: fpDescription.trim(),
-              isActive: fpIsActive,
-            }
-          : p
+        p.id === editingFinancingPlan.id ? updatedPlan : p
       );
-      onSaveFinancingPlans(updated);
+      onSaveFinancingPlans(updated, updatedPlan);
       showToast('Plan de financiamiento actualizado correctamente');
     } else {
       const newPlan: FinancingPlan = {
@@ -413,7 +420,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
         isActive: fpIsActive,
       };
       // Prepend so the new plan is instantly visible at the very top of the list
-      onSaveFinancingPlans([newPlan, ...financingPlans]);
+      onSaveFinancingPlans([newPlan, ...financingPlans], newPlan);
       // Reset filter and search so the new plan is guaranteed to be shown
       setFinancingFrequencyFilter('all');
       setFinancingSearch('');
@@ -423,16 +430,23 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
   };
 
   const handleToggleFinancingPlanActive = (id: string) => {
+    const target = financingPlans.find((p) => p.id === id);
+    if (!target) return;
+    const toggled = { ...target, isActive: !target.isActive };
     const updated = financingPlans.map((p) =>
-      p.id === id ? { ...p, isActive: !p.isActive } : p
+      p.id === id ? toggled : p
     );
-    onSaveFinancingPlans(updated);
+    onSaveFinancingPlans(updated, toggled);
     showToast('Estado del plan de financiamiento modificado');
   };
 
   const handleDeleteFinancingPlan = (id: string, name: string) => {
     if (confirm(`¿Desea eliminar el plan de financiamiento "${name}"?`)) {
-      onSaveFinancingPlans(financingPlans.filter((p) => p.id !== id));
+      if (onDeleteFinancingPlan) {
+        onDeleteFinancingPlan(id);
+      } else {
+        onSaveFinancingPlans(financingPlans.filter((p) => p.id !== id));
+      }
       showToast('Plan de financiamiento eliminado');
     }
   };

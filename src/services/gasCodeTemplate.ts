@@ -174,14 +174,33 @@ function sembrarDatosIniciales(ss) {
 
   var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
   if (procSheet && procSheet.getLastRow() <= 1) {
-    procSheet.appendRow(['PRC-001', 'QX-RINO', 'Rinoplastia Ultrasónica Estructural', 'Facial', 3200, 180, 'true', 65, 'true']);
-    procSheet.appendRow(['PRC-002', 'QX-LIPO', 'Lipoescultura HD con Marcación', 'Corporal', 4500, 210, 'true', 60, 'true']);
+    var defaultProcs = [
+      ['PRC-001', 'QX-RINO', 'Rinoplastia Ultrasónica Estructural', 'Facial', 3200, 180, 'TRUE', 65, 'TRUE'],
+      ['PRC-002', 'QX-LIPO', 'Lipoescultura HD con Marcación', 'Corporal', 4500, 210, 'TRUE', 60, 'TRUE'],
+      ['PRC-003', 'QX-MAMO', 'Mamoplastia de Aumento con Implantes', 'Mamas', 3800, 120, 'TRUE', 60, 'TRUE'],
+      ['PRC-004', 'QX-BLEFARO', 'Blefaroplastia Superior e Inferior', 'Facial', 1800, 90, 'FALSE', 70, 'TRUE'],
+      ['PRC-005', 'QX-ABDOMINO', 'Abdominoplastia con Plicatura Muscular', 'Corporal', 4200, 240, 'TRUE', 55, 'TRUE'],
+      ['PRC-006', 'QX-MASTOPEXIA', 'Mastopexia con Elevación Tisular', 'Mamas', 4100, 180, 'TRUE', 60, 'TRUE'],
+      ['PRC-007', 'QX-BICHECTOMIA', 'Bichectomía Láser Ambulatoria', 'Facial', 950, 45, 'FALSE', 75, 'TRUE'],
+      ['PRC-008', 'QX-GLUTEOS', 'Gluteoplastia con Lipotransferencia', 'Corporal', 3900, 180, 'TRUE', 60, 'TRUE'],
+      ['PRC-009', 'QX-OTOPLASTIA', 'Otoplastia Bilateral Reconstructiva', 'Facial', 1600, 75, 'FALSE', 70, 'TRUE'],
+      ['PRC-010', 'NX-BOTOX', 'Aplicación de Toxina Botulínica (3 Zonas)', 'No Quirúrgico', 350, 30, 'FALSE', 80, 'TRUE']
+    ];
+    procSheet.getRange(2, 1, defaultProcs.length, defaultProcs[0].length).setValues(defaultProcs);
   }
 
   var planSheet = obtenerOCrearHoja(ss, SCHEMA.PLANES);
   if (planSheet && planSheet.getLastRow() <= 1) {
-    planSheet.appendRow(['PLAN-001', 'Plan 6 Meses - Mensual (Sin Interés)', 6, 'Mensual', 6, 0, 20, 'true']);
-    planSheet.appendRow(['PLAN-006', 'Pago Contado / En Una Sola Cuota', 1, 'Mensual', 1, 0, 100, 'true']);
+    var defaultPlans = [
+      ['PLAN-001', 'Plan 6 Meses - Mensual (Sin Interés)', 6, 'Mensual', 6, 0, 20, 'TRUE'],
+      ['PLAN-002', 'Plan 12 Meses - Mensual (10% Interés)', 12, 'Mensual', 12, 10, 15, 'TRUE'],
+      ['PLAN-003', 'Plan Quincenal 3 Meses (6 Cuotas)', 3, 'Quincenal', 6, 0, 25, 'TRUE'],
+      ['PLAN-004', 'Plan Semanal 2 Meses (8 Cuotas)', 2, 'Semanal', 8, 0, 30, 'TRUE'],
+      ['PLAN-005', 'Plan Flexible Personalizado', 6, 'Mensual', 6, 5, 20, 'TRUE'],
+      ['PLAN-006', 'Pago Contado / En Una Sola Cuota', 1, 'Mensual', 1, 0, 100, 'TRUE'],
+      ['PLAN-007', 'Plan Premium 18 Meses (15% Interés)', 18, 'Mensual', 18, 15, 10, 'TRUE']
+    ];
+    planSheet.getRange(2, 1, defaultPlans.length, defaultPlans[0].length).setValues(defaultPlans);
   }
 }
 
@@ -280,6 +299,7 @@ function doPost(e) {
         return responderJSON(borrarPlanFinanciamiento(ss, payload.planId));
 
       case 'BATCH_SYNC':
+      case 'SYNC_BATCH':
         return responderJSON(sincronizarMasivo(ss, payload));
 
       default:
@@ -749,14 +769,21 @@ function guardarTodosProcedimientos(ss, proceduresList) {
   procSheet.clearContents();
   procSheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
   formatearEncabezado(procSheet, SCHEMA.PROCEDIMIENTOS.headers.length);
-  if (Array.isArray(proceduresList)) {
-    proceduresList.forEach(function(pr) {
-      procSheet.appendRow([
-        pr.id, pr.code || '', pr.name || '', pr.category || 'Facial',
-        pr.basePrice || 0, pr.durationMinutes || 60, String(pr.requiresOR !== false),
-        pr.doctorCommissionPercent || 50, String(pr.isActive !== false)
-      ]);
+  if (Array.isArray(proceduresList) && proceduresList.length > 0) {
+    var rows = proceduresList.map(function(pr) {
+      return [
+        pr.id,
+        pr.code || '',
+        pr.name || '',
+        pr.category || 'Facial',
+        Number(pr.basePrice) || 0,
+        Number(pr.durationMinutes) || 60,
+        pr.requiresOR !== false ? 'TRUE' : 'FALSE',
+        Number(pr.doctorCommissionPercent) || 50,
+        pr.isActive !== false ? 'TRUE' : 'FALSE'
+      ];
     });
+    procSheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
   }
   return { status: 'ok', message: 'Procedimientos actualizados (' + (proceduresList ? proceduresList.length : 0) + ')' };
 }
@@ -808,19 +835,20 @@ function guardarTodosPlanes(ss, planesList) {
   planSheet.clearContents();
   planSheet.appendRow(SCHEMA.PLANES.headers);
   formatearEncabezado(planSheet, SCHEMA.PLANES.headers.length);
-  if (Array.isArray(planesList)) {
-    planesList.forEach(function(pl) {
-      planSheet.appendRow([
+  if (Array.isArray(planesList) && planesList.length > 0) {
+    var rows = planesList.map(function(pl) {
+      return [
         pl.id,
         pl.name || '',
-        pl.months || 6,
+        Number(pl.months) || 6,
         pl.frequency || 'Mensual',
-        pl.installmentsCount || 6,
-        pl.interestRatePercent || 0,
-        pl.downPaymentPercent || 20,
-        String(pl.isActive !== false)
-      ]);
+        Number(pl.installmentsCount) || 6,
+        Number(pl.interestRatePercent) || 0,
+        Number(pl.downPaymentPercent) || 20,
+        pl.isActive !== false ? 'TRUE' : 'FALSE'
+      ];
     });
+    planSheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
   }
   return { status: 'ok', message: 'Planes de financiamiento actualizados (' + (planesList ? planesList.length : 0) + ')' };
 }
@@ -873,31 +901,44 @@ function sincronizarMasivo(ss, data) {
     formatearEncabezado(crmSheet, SCHEMA.CRM.headers.length);
     data.crmEvents.forEach(function(ev) { guardarEventoCRM(ss, ev); });
   }
-  if (data.procedures && Array.isArray(data.procedures)) {
+  if (data.procedures && Array.isArray(data.procedures) && data.procedures.length > 0) {
     var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
     procSheet.clearContents();
     procSheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
     formatearEncabezado(procSheet, SCHEMA.PROCEDIMIENTOS.headers.length);
-    data.procedures.forEach(function(pr) {
-      procSheet.appendRow([
-        pr.id, pr.code || '', pr.name || '', pr.category || 'Facial',
-        pr.basePrice || 0, pr.durationMinutes || 60, String(pr.requiresOR !== false),
-        pr.doctorCommissionPercent || 50, String(pr.isActive !== false)
-      ]);
+    var procRows = data.procedures.map(function(pr) {
+      return [
+        pr.id,
+        pr.code || '',
+        pr.name || '',
+        pr.category || 'Facial',
+        Number(pr.basePrice) || 0,
+        Number(pr.durationMinutes) || 60,
+        pr.requiresOR !== false ? 'TRUE' : 'FALSE',
+        Number(pr.doctorCommissionPercent) || 50,
+        pr.isActive !== false ? 'TRUE' : 'FALSE'
+      ];
     });
+    procSheet.getRange(2, 1, procRows.length, procRows[0].length).setValues(procRows);
   }
-  if (data.financingPlans && Array.isArray(data.financingPlans)) {
+  if (data.financingPlans && Array.isArray(data.financingPlans) && data.financingPlans.length > 0) {
     var planSheet = obtenerOCrearHoja(ss, SCHEMA.PLANES);
     planSheet.clearContents();
     planSheet.appendRow(SCHEMA.PLANES.headers);
     formatearEncabezado(planSheet, SCHEMA.PLANES.headers.length);
-    data.financingPlans.forEach(function(pl) {
-      planSheet.appendRow([
-        pl.id, pl.name || '', pl.months || 6, pl.frequency || 'Mensual',
-        pl.installmentsCount || 6, pl.interestRatePercent || 0,
-        pl.downPaymentPercent || 20, String(pl.isActive !== false)
-      ]);
+    var planRows = data.financingPlans.map(function(pl) {
+      return [
+        pl.id,
+        pl.name || '',
+        Number(pl.months) || 6,
+        pl.frequency || 'Mensual',
+        Number(pl.installmentsCount) || 6,
+        Number(pl.interestRatePercent) || 0,
+        Number(pl.downPaymentPercent) || 20,
+        pl.isActive !== false ? 'TRUE' : 'FALSE'
+      ];
     });
+    planSheet.getRange(2, 1, planRows.length, planRows[0].length).setValues(planRows);
   }
   return { status: 'ok', message: 'Sincronización masiva completada' };
 }

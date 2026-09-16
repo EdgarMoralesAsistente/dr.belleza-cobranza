@@ -153,7 +153,7 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
     setErrorMessage(null);
     try {
       await onSyncAllToGas();
-      setActionSuccessMessage('¡Todos los datos locales (pacientes, abonos, reintegros) se volcaron exitosamente a Google Sheets!');
+      setActionSuccessMessage('¡Todos los datos locales (pacientes, abonos, reintegros, procedimientos y planes) se volcaron exitosamente a Google Sheets!');
     } catch (e: any) {
       setErrorMessage(e.message || 'Error al sincronizar datos hacia Google Sheets');
     } finally {

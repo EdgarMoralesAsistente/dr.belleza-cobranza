@@ -1,10 +1,12 @@
-import { Patient, Payment, Refund, SystemUser } from '../types';
+import { Patient, Payment, Refund, SystemUser, SurgicalProcedure, FinancingPlan } from '../types';
 
 export const SHEET_NAMES = {
   PATIENTS: 'Pacientes',
   PAYMENTS: 'Historial de Pagos',
   REFUNDS: 'Historial de Reintegros',
   USERS: 'Usuarios',
+  PROCEDURES: 'Procedimientos',
+  PLANES: 'Planes_Financiamiento',
 };
 
 const PATIENT_HEADERS = [
@@ -60,6 +62,29 @@ const USER_HEADERS = [
   'Es Inmutable',
   'Fecha Creación',
   'Notas',
+];
+
+const PROCEDURE_HEADERS = [
+  'ID Procedimiento',
+  'Código',
+  'Nombre',
+  'Categoría',
+  'Precio Base ($)',
+  'Duración (min)',
+  'Requiere Quirófano',
+  'Comisión Doctor (%)',
+  'Activo',
+];
+
+const FINANCING_PLAN_HEADERS = [
+  'ID Plan',
+  'Nombre del Plan',
+  'Meses',
+  'Frecuencia',
+  'Cuotas',
+  'Interés (%)',
+  'Anticipo Mínimo (%)',
+  'Activo',
 ];
 
 /**
@@ -234,6 +259,33 @@ function userToRow(u: SystemUser): (string | number)[] {
   ];
 }
 
+export function procedureToRow(proc: SurgicalProcedure): (string | number)[] {
+  return [
+    proc.id,
+    proc.code || '',
+    proc.name || '',
+    proc.category || 'Facial',
+    proc.basePrice || 0,
+    proc.durationMinutes || 60,
+    proc.requiresOR !== false ? 'TRUE' : 'FALSE',
+    proc.doctorCommissionPercent || 50,
+    proc.isActive !== false ? 'TRUE' : 'FALSE',
+  ];
+}
+
+export function planToRow(pl: FinancingPlan): (string | number)[] {
+  return [
+    pl.id,
+    pl.name || '',
+    pl.months || 6,
+    pl.frequency || 'Mensual',
+    pl.installmentsCount || 6,
+    pl.interestRatePercent || 0,
+    pl.downPaymentPercent || 20,
+    pl.isActive !== false ? 'TRUE' : 'FALSE',
+  ];
+}
+
 /**
  * Sync entire current dataset into Google Sheets cleanly
  */
@@ -243,12 +295,16 @@ export async function syncAllToGoogleSheet(
   patients: Patient[],
   payments: Payment[],
   refunds: Refund[],
-  users?: SystemUser[]
+  users?: SystemUser[],
+  procedures?: SurgicalProcedure[],
+  financingPlans?: FinancingPlan[]
 ): Promise<void> {
   const patientRows = [PATIENT_HEADERS, ...patients.map(patientToRow)];
   const paymentRows = [PAYMENT_HEADERS, ...payments.map(paymentToRow)];
   const refundRows = [REFUND_HEADERS, ...refunds.map(refundToRow)];
   const userRows = users ? [USER_HEADERS, ...users.map(userToRow)] : [];
+  const procedureRows = procedures ? [PROCEDURE_HEADERS, ...procedures.map(procedureToRow)] : [];
+  const planRows = financingPlans ? [FINANCING_PLAN_HEADERS, ...financingPlans.map(planToRow)] : [];
 
   const rangesToClear = [
     `'${SHEET_NAMES.PATIENTS}'!A1:Z`,
@@ -258,18 +314,28 @@ export async function syncAllToGoogleSheet(
   if (users && users.length > 0) {
     rangesToClear.push(`'${SHEET_NAMES.USERS}'!A1:Z`);
   }
+  if (procedures && procedures.length > 0) {
+    rangesToClear.push(`'${SHEET_NAMES.PROCEDURES}'!A1:Z`);
+  }
+  if (financingPlans && financingPlans.length > 0) {
+    rangesToClear.push(`'${SHEET_NAMES.PLANES}'!A1:Z`);
+  }
 
   // Clear existing ranges to avoid orphaned leftover rows
-  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      ranges: rangesToClear,
-    }),
-  });
+  try {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ranges: rangesToClear,
+      }),
+    });
+  } catch (clearErr) {
+    console.warn('Batch clear warning:', clearErr);
+  }
 
   const updateData: any[] = [
     {
@@ -289,6 +355,18 @@ export async function syncAllToGoogleSheet(
     updateData.push({
       range: `'${SHEET_NAMES.USERS}'!A1`,
       values: userRows,
+    });
+  }
+  if (procedures && procedures.length > 0) {
+    updateData.push({
+      range: `'${SHEET_NAMES.PROCEDURES}'!A1`,
+      values: procedureRows,
+    });
+  }
+  if (financingPlans && financingPlans.length > 0) {
+    updateData.push({
+      range: `'${SHEET_NAMES.PLANES}'!A1`,
+      values: planRows,
     });
   }
 
@@ -710,3 +788,328 @@ export async function deleteUserInGoogleSheet(
     console.error('Error deleting user in Google Sheet:', e);
   }
 }
+
+/**
+ * Sync entire surgical procedures catalog to Google Sheets
+ */
+export async function syncAllProceduresToGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  procedures: SurgicalProcedure[]
+): Promise<void> {
+  const rows = [PROCEDURE_HEADERS, ...procedures.map(procedureToRow)];
+
+  // Clear existing catalog to prevent stale or duplicate entries
+  try {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A1:Z:clear`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  } catch (clearErr) {
+    console.warn('Clear procedures warning:', clearErr);
+  }
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A1?valueInputOption=USER_ENTERED`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        values: rows,
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || 'Error al guardar catálogo de procedimientos en Google Sheets');
+  }
+}
+
+/**
+ * Append a single procedure to Google Sheets
+ */
+export async function appendProcedureToGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  proc: SurgicalProcedure
+): Promise<void> {
+  const row = procedureToRow(proc);
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A:I:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        values: [row],
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || 'Error al agregar procedimiento a Google Sheets');
+  }
+}
+
+/**
+ * Update or append a procedure in Google Sheets
+ */
+export async function updateProcedureInGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  proc: SurgicalProcedure
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A:B`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!res.ok) {
+      await appendProcedureToGoogleSheet(accessToken, spreadsheetId, proc);
+      return;
+    }
+    const data = await res.json();
+    const rows = data.values || [];
+    let targetRowIndex = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (
+        (rows[i] && String(rows[i][0]) === String(proc.id)) ||
+        (rows[i] && proc.code && String(rows[i][1]).toUpperCase() === String(proc.code).toUpperCase())
+      ) {
+        targetRowIndex = i + 1;
+        break;
+      }
+    }
+    if (targetRowIndex > 1) {
+      const row = procedureToRow(proc);
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A${targetRowIndex}:I${targetRowIndex}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            values: [row],
+          }),
+        }
+      );
+    } else {
+      await appendProcedureToGoogleSheet(accessToken, spreadsheetId, proc);
+    }
+  } catch (e) {
+    console.error('Error updating procedure in Google Sheet:', e);
+  }
+}
+
+/**
+ * Delete a procedure in Google Sheets
+ */
+export async function deleteProcedureFromGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  procedureId: string
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A:A`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const rows = data.values || [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][0]) === String(procedureId)) {
+        const rowIdx = i + 1;
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PROCEDURES}'!A${rowIdx}:I${rowIdx}:clear`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        break;
+      }
+    }
+  } catch (e) {
+    console.error('Error deleting procedure in Google Sheet:', e);
+  }
+}
+
+/**
+ * Sync entire financing plans to Google Sheets
+ */
+export async function syncAllPlansToGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  plans: FinancingPlan[]
+): Promise<void> {
+  const rows = [FINANCING_PLAN_HEADERS, ...plans.map(planToRow)];
+
+  try {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A1:Z:clear`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  } catch (clearErr) {
+    console.warn('Clear financing plans warning:', clearErr);
+  }
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A1?valueInputOption=USER_ENTERED`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        values: rows,
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || 'Error al guardar planes en Google Sheets');
+  }
+}
+
+/**
+ * Append a single financing plan row to Google Sheets
+ */
+export async function appendPlanToGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  plan: FinancingPlan
+): Promise<void> {
+  const row = planToRow(plan);
+  await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A:H:append?valueInputOption=USER_ENTERED`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        values: [row],
+      }),
+    }
+  );
+}
+
+/**
+ * Update an existing financing plan in Google Sheets
+ */
+export async function updatePlanInGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  plan: FinancingPlan
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A:B`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!res.ok) {
+      await appendPlanToGoogleSheet(accessToken, spreadsheetId, plan);
+      return;
+    }
+    const data = await res.json();
+    const rows = data.values || [];
+    let targetRowIndex = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (
+        (rows[i] && String(rows[i][0]) === String(plan.id)) ||
+        (rows[i] && String(rows[i][1]).trim().toLowerCase() === plan.name.trim().toLowerCase())
+      ) {
+        targetRowIndex = i + 1;
+        break;
+      }
+    }
+    if (targetRowIndex > 1) {
+      const row = planToRow(plan);
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A${targetRowIndex}:H${targetRowIndex}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            values: [row],
+          }),
+        }
+      );
+    } else {
+      await appendPlanToGoogleSheet(accessToken, spreadsheetId, plan);
+    }
+  } catch (e) {
+    console.error('Error updating financing plan in Google Sheet:', e);
+  }
+}
+
+/**
+ * Delete a financing plan from Google Sheets
+ */
+export async function deletePlanFromGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  planId: string
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A:A`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const rows = data.values || [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][0]) === String(planId)) {
+        const rowIdx = i + 1;
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PLANES}'!A${rowIdx}:H${rowIdx}:clear`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        break;
+      }
+    }
+  } catch (e) {
+    console.error('Error deleting financing plan in Google Sheet:', e);
+  }
+}
+

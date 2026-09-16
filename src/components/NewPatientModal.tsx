@@ -319,10 +319,13 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     }
   }, [selectedFinancingPlan, totalCost, isManualInitialPayment]);
 
-  // Al abrir el modal se restablece el modo de cálculo automático
+  // Al abrir el modal se restablece el modo de cálculo automático y se limpian filtros
   useEffect(() => {
     if (isOpen) {
       setIsManualInitialPayment(false);
+      setProcSearch('');
+      setSelectedCategory('all');
+      setSelectedFrequencyFilter('all');
     }
   }, [isOpen]);
 

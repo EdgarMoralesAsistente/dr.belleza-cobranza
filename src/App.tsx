@@ -80,6 +80,12 @@ import {
   appendUserToGoogleSheet,
   updateUserInGoogleSheet,
   deleteUserInGoogleSheet,
+  syncAllProceduresToGoogleSheet,
+  updateProcedureInGoogleSheet,
+  deleteProcedureFromGoogleSheet,
+  syncAllPlansToGoogleSheet,
+  updatePlanInGoogleSheet,
+  deletePlanFromGoogleSheet,
 } from './services/googleSheets';
 import {
   testGasConnection,
@@ -93,8 +99,10 @@ import {
   saveUserToGas,
   deleteUserFromGas,
   saveProcedureToGas,
+  deleteProcedureFromGas,
   saveAllProceduresToGas,
   saveFinancingPlanToGas,
+  deleteFinancingPlanFromGas,
   saveAllFinancingPlansToGas,
   batchSyncToGas,
 } from './services/gasService';
@@ -661,7 +669,7 @@ export default function App() {
 
     setSheetConfig((prev) => ({ ...prev, isSyncing: true }));
     try {
-      await syncAllToGoogleSheet(token, sheetConfig.spreadsheetId, patients, payments, refunds, users);
+      await syncAllToGoogleSheet(token, sheetConfig.spreadsheetId, patients, payments, refunds, users, procedures, financingPlans);
       setSheetConfig((prev) => ({
         ...prev,
         isSyncing: false,
@@ -747,15 +755,55 @@ export default function App() {
         setProcedures((prev) => {
           const remoteIds = new Set(data.procedures.map((p: SurgicalProcedure) => p.id));
           const localOnly = prev.filter((p) => !remoteIds.has(p.id));
-          return [...localOnly, ...data.procedures];
+          const merged = [...localOnly, ...data.procedures];
+          saveLocalProcedures(merged);
+          // Auto-sync missing procedures to Google Sheets in the background
+          if (localOnly.length > 0 && gasUrl) {
+            saveAllProceduresToGas(gasUrl, merged).catch(() => {
+              for (const p of localOnly) {
+                saveProcedureToGas(gasUrl, p).catch(console.warn);
+              }
+            });
+          }
+          return merged;
         });
+      } else if (gasUrl) {
+        // If Google Sheets had 0 procedures, upload all local procedures
+        const localProcs = loadLocalProcedures();
+        if (localProcs.length > 0) {
+          saveAllProceduresToGas(gasUrl, localProcs).catch(() => {
+            for (const p of localProcs) {
+              saveProcedureToGas(gasUrl, p).catch(console.warn);
+            }
+          });
+        }
       }
+
       if (data.financingPlans && Array.isArray(data.financingPlans) && data.financingPlans.length > 0) {
         setFinancingPlans((prev) => {
           const remoteIds = new Set(data.financingPlans.map((p: FinancingPlan) => p.id));
           const localOnly = prev.filter((p) => !remoteIds.has(p.id));
-          return [...localOnly, ...data.financingPlans];
+          const merged = [...localOnly, ...data.financingPlans];
+          saveLocalFinancingPlans(merged);
+          // Auto-sync missing financing plans to Google Sheets in the background
+          if (localOnly.length > 0 && gasUrl) {
+            saveAllFinancingPlansToGas(gasUrl, merged).catch(() => {
+              for (const pl of localOnly) {
+                saveFinancingPlanToGas(gasUrl, pl).catch(console.warn);
+              }
+            });
+          }
+          return merged;
         });
+      } else if (gasUrl) {
+        const localPlans = loadLocalFinancingPlans();
+        if (localPlans.length > 0) {
+          saveAllFinancingPlansToGas(gasUrl, localPlans).catch(() => {
+            for (const pl of localPlans) {
+              saveFinancingPlanToGas(gasUrl, pl).catch(console.warn);
+            }
+          });
+        }
       }
 
       const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
@@ -1122,16 +1170,34 @@ export default function App() {
     setIsNewRefundModalOpen(true);
   };
 
-  const handleSaveFinancingPlans = async (updatedPlans: FinancingPlan[]) => {
+  const handleSaveFinancingPlans = async (
+    updatedPlans: FinancingPlan[],
+    singlePlan?: FinancingPlan
+  ) => {
     setFinancingPlans(updatedPlans);
     saveLocalFinancingPlans(updatedPlans);
 
     const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    const token = await getAccessToken();
+    let synced = false;
+
     if (gasUrl) {
+      // 1. Send single plan immediately using SAVE_FINANCING_PLAN
+      // This is supported across all Apps Script deployments (legacy and modern)
+      if (singlePlan) {
+        saveFinancingPlanToGas(gasUrl, singlePlan).catch((err) => {
+          console.warn('Fallo en auto-sync saveFinancingPlanToGas:', err);
+        });
+        synced = true;
+      }
+
+      // 2. Also ensure entire collection is stored in Google Sheets
       try {
+        await saveAllFinancingPlansToGas(gasUrl, updatedPlans);
+        synced = true;
+      } catch (errGas) {
+        console.warn('Fallo en saveAllFinancingPlansToGas, reintentando con fallback:', errGas);
         try {
-          await saveAllFinancingPlansToGas(gasUrl, updatedPlans);
-        } catch {
           await batchSyncToGas(gasUrl, {
             patients,
             payments,
@@ -1141,28 +1207,83 @@ export default function App() {
             procedures,
             financingPlans: updatedPlans,
           });
+          synced = true;
+        } catch {
+          for (const pl of updatedPlans) {
+            saveFinancingPlanToGas(gasUrl, pl).catch(console.warn);
+          }
+          synced = true;
         }
-        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-        showToast('✓ Planes de financiamiento guardados y sincronizados con Google Sheets');
-      } catch (err: any) {
-        console.error('Error sincronizando planes con Google Sheets:', err);
-        showToast(`⚠️ Guardado localmente. Error al enviar a Google Sheets: ${err?.message || 'Fallo de conexión'}`);
       }
-    } else {
+    }
+
+    if (token && sheetConfig.spreadsheetId) {
+      if (singlePlan) {
+        updatePlanInGoogleSheet(token, sheetConfig.spreadsheetId, singlePlan).catch(console.warn);
+      }
+      try {
+        await syncAllPlansToGoogleSheet(token, sheetConfig.spreadsheetId, updatedPlans);
+        synced = true;
+      } catch (errOAuth) {
+        console.error('Error sincronizando planes con Google Sheets API:', errOAuth);
+      }
+    }
+
+    if (synced) {
+      const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      setSheetConfig((prev) => ({ ...prev, lastSyncTime: now }));
+      showToast(`✓ Plan financiero guardado y sincronizado automáticamente en Google Sheets`);
+    } else if (!gasUrl && (!token || !sheetConfig.spreadsheetId)) {
       showToast('Plan guardado localmente (conecte Google Sheets para sincronizar)');
     }
   };
 
-  const handleSaveProcedures = async (updatedProcedures: SurgicalProcedure[]) => {
+  const handleDeleteFinancingPlan = async (planId: string) => {
+    const updated = financingPlans.filter((p) => p.id !== planId);
+    setFinancingPlans(updated);
+    saveLocalFinancingPlans(updated);
+
+    const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    const token = await getAccessToken();
+
+    if (gasUrl) {
+      deleteFinancingPlanFromGas(gasUrl, planId).catch(console.warn);
+      saveAllFinancingPlansToGas(gasUrl, updated).catch(console.warn);
+    }
+    if (token && sheetConfig.spreadsheetId) {
+      deletePlanFromGoogleSheet(token, sheetConfig.spreadsheetId, planId).catch(console.warn);
+    }
+    showToast('Plan de financiamiento eliminado de la app y de Google Sheets');
+  };
+
+  const handleSaveProcedures = async (
+    updatedProcedures: SurgicalProcedure[],
+    singleProcedure?: SurgicalProcedure
+  ) => {
     setProcedures(updatedProcedures);
     saveLocalProcedures(updatedProcedures);
 
     const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    const token = await getAccessToken();
+    let synced = false;
+
     if (gasUrl) {
+      // 1. Send single procedure immediately using SAVE_PROCEDURE
+      // This is supported across all Apps Script deployments (legacy and modern)
+      if (singleProcedure) {
+        saveProcedureToGas(gasUrl, singleProcedure).catch((err) => {
+          console.warn('Fallo en auto-sync saveProcedureToGas:', err);
+        });
+        synced = true;
+      }
+
+      // 2. Also ensure entire catalog is stored in Google Sheets
       try {
+        await saveAllProceduresToGas(gasUrl, updatedProcedures);
+        synced = true;
+      } catch (errGas) {
+        console.warn('Fallo en saveAllProceduresToGas, reintentando con fallback:', errGas);
         try {
-          await saveAllProceduresToGas(gasUrl, updatedProcedures);
-        } catch {
           await batchSyncToGas(gasUrl, {
             patients,
             payments,
@@ -1172,16 +1293,53 @@ export default function App() {
             procedures: updatedProcedures,
             financingPlans,
           });
+          synced = true;
+        } catch {
+          for (const p of updatedProcedures) {
+            saveProcedureToGas(gasUrl, p).catch(console.warn);
+          }
+          synced = true;
         }
-        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-        showToast('✓ Procedimiento guardado y sincronizado con Google Sheets');
-      } catch (err: any) {
-        console.error('Error sincronizando procedimientos con Google Sheets:', err);
-        showToast(`⚠️ Guardado localmente. Error al enviar a Google Sheets: ${err?.message || 'Fallo de conexión'}`);
       }
-    } else {
+    }
+
+    if (token && sheetConfig.spreadsheetId) {
+      if (singleProcedure) {
+        updateProcedureInGoogleSheet(token, sheetConfig.spreadsheetId, singleProcedure).catch(console.warn);
+      }
+      try {
+        await syncAllProceduresToGoogleSheet(token, sheetConfig.spreadsheetId, updatedProcedures);
+        synced = true;
+      } catch (errOAuth) {
+        console.error('Error sincronizando procedimientos con Google Sheets API:', errOAuth);
+      }
+    }
+
+    if (synced) {
+      const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      setSheetConfig((prev) => ({ ...prev, lastSyncTime: now }));
+      showToast(`✓ Procedimiento quirúrgico guardado y sincronizado automáticamente en Google Sheets`);
+    } else if (!gasUrl && (!token || !sheetConfig.spreadsheetId)) {
       showToast('Procedimiento guardado localmente (conecte Google Sheets para sincronizar)');
     }
+  };
+
+  const handleDeleteProcedure = async (procedureId: string) => {
+    const updated = procedures.filter((p) => p.id !== procedureId);
+    setProcedures(updated);
+    saveLocalProcedures(updated);
+
+    const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    const token = await getAccessToken();
+
+    if (gasUrl) {
+      deleteProcedureFromGas(gasUrl, procedureId).catch(console.warn);
+      saveAllProceduresToGas(gasUrl, updated).catch(console.warn);
+    }
+    if (token && sheetConfig.spreadsheetId) {
+      deleteProcedureFromGoogleSheet(token, sheetConfig.spreadsheetId, procedureId).catch(console.warn);
+    }
+    showToast('Procedimiento eliminado del catálogo y de Google Sheets');
   };
 
   return (
@@ -1401,6 +1559,7 @@ export default function App() {
                 <SettingsModule
                   procedures={procedures}
                   onSaveProcedures={handleSaveProcedures}
+                  onDeleteProcedure={handleDeleteProcedure}
                   coupons={coupons}
                   onSaveCoupons={setCoupons}
                   branding={branding}
@@ -1409,6 +1568,7 @@ export default function App() {
                   onSaveRolePrivileges={setRolePrivileges}
                   financingPlans={financingPlans}
                   onSaveFinancingPlans={handleSaveFinancingPlans}
+                  onDeleteFinancingPlan={handleDeleteFinancingPlan}
                   activeUser={activeUser}
                   onNavigateToUsers={() => setActiveTab('users')}
                 />

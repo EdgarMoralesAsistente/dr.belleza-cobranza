@@ -250,20 +250,30 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
                 <input
                   type="text"
                   required
+                  list="edit-procedure-suggestions"
                   value={procedure}
                   onChange={(e) => setProcedure(e.target.value)}
                   placeholder="Ej. Rinoplastia Ultrasónica + Mentoplastia"
                   className="w-full py-2 px-3 rounded-lg bg-slate-50 border border-slate-300 font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                 />
+                <datalist id="edit-procedure-suggestions">
+                  {availableProcedures.filter((p) => p.isActive).map((p) => (
+                    <option key={p.id} value={p.name} />
+                  ))}
+                </datalist>
                 {availableProcedures.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    <span className="text-[10px] text-slate-400">Sugerencias:</span>
-                    {availableProcedures.slice(0, 4).map((p) => (
+                  <div className="mt-1.5 flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                    <span className="text-[10px] text-slate-400">Catálogo:</span>
+                    {availableProcedures.filter((p) => p.isActive).map((p) => (
                       <button
                         type="button"
                         key={p.id}
                         onClick={() => setProcedure(p.name)}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                        className={`text-[10px] px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                          procedure === p.name
+                            ? 'bg-emerald-100 text-emerald-800 font-bold border border-emerald-300'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
                       >
                         {p.name}
                       </button>
