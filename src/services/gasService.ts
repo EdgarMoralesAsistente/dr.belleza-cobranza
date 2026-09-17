@@ -232,11 +232,20 @@ export async function saveCrmEventToGas(gasUrl: string, event: CRMEvent): Promis
 /**
  * Guarda o actualiza un procedimiento quirúrgico en Google Sheets
  */
-export async function saveProcedureToGas(gasUrl: string, procedure: SurgicalProcedure): Promise<void> {
-  await postToGas(gasUrl, {
-    action: 'SAVE_PROCEDURE',
-    procedure,
-  });
+export async function saveProcedureToGas(gasUrl: string, procedure: SurgicalProcedure): Promise<any> {
+  try {
+    return await postToGas(gasUrl, {
+      action: 'SAVE_PROCEDURE',
+      procedure,
+    });
+  } catch (err: any) {
+    if (err.message && err.message.includes('Acción no reconocida')) {
+      throw new Error(
+        'Tu Web App de Google Apps Script necesita actualizarse: no reconoce la acción SAVE_PROCEDURE. Ve a Conectar Google Sheets > Copiar Código y publica una "Nueva versión" en Apps Script.'
+      );
+    }
+    throw err;
+  }
 }
 
 /**
@@ -252,11 +261,71 @@ export async function deleteProcedureFromGas(gasUrl: string, procedureId: string
 /**
  * Guarda todos los procedimientos quirúrgicos en Google Sheets
  */
-export async function saveAllProceduresToGas(gasUrl: string, procedures: SurgicalProcedure[]): Promise<void> {
-  await postToGas(gasUrl, {
-    action: 'SAVE_ALL_PROCEDURES',
-    procedures,
-  });
+export async function saveAllProceduresToGas(gasUrl: string, procedures: SurgicalProcedure[]): Promise<any> {
+  try {
+    return await postToGas(gasUrl, {
+      action: 'SAVE_ALL_PROCEDURES',
+      procedures,
+    });
+  } catch (err: any) {
+    if (err.message && err.message.includes('Acción no reconocida')) {
+      throw new Error(
+        'Tu Web App de Google Apps Script necesita actualizarse: no reconoce la acción SAVE_ALL_PROCEDURES. Ve a Conectar Google Sheets > Copiar Código y publica una "Nueva versión" en Apps Script.'
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Diagnóstico: prueba si la Web App de Google Apps Script reconoce y guarda procedimientos en la hoja 'Procedimientos'.
+ */
+export async function testProcedureSyncInGas(gasUrl: string): Promise<{
+  success: boolean;
+  message: string;
+  isOutdated?: boolean;
+}> {
+  try {
+    const testProc: SurgicalProcedure = {
+      id: 'PRC-DIAG-TEST',
+      code: 'DIAG-TEST',
+      name: 'Procedimiento de Prueba Diagnóstica',
+      category: 'Facial',
+      basePrice: 1,
+      durationMinutes: 1,
+      requiresOR: false,
+      doctorCommissionPercent: 0,
+      isActive: false,
+    };
+    await postToGas(gasUrl, {
+      action: 'SAVE_PROCEDURE',
+      procedure: testProc,
+    });
+    // Limpiar el registro de prueba inmediatamente
+    try {
+      await deleteProcedureFromGas(gasUrl, 'PRC-DIAG-TEST');
+    } catch {
+      // Ignorar
+    }
+    return {
+      success: true,
+      message: '¡Verificación exitosa! Tu Google Apps Script está 100% actualizado y listo para recibir y sincronizar procedimientos en la pestaña "Procedimientos".',
+    };
+  } catch (err: any) {
+    const msg = err.message || '';
+    if (msg.includes('Acción no reconocida') || msg.includes('SAVE_PROCEDURE')) {
+      return {
+        success: false,
+        isOutdated: true,
+        message: 'Tu Web App de Google Apps Script tiene una versión anterior desplegada que no reconoce la acción SAVE_PROCEDURE. Necesitas publicar una "Nueva versión" en Apps Script pegando el código actualizado.',
+      };
+    }
+    return {
+      success: false,
+      isOutdated: false,
+      message: `Error al verificar sincronización de procedimientos: ${msg}`,
+    };
+  }
 }
 
 /**

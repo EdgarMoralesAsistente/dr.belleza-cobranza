@@ -56,7 +56,7 @@ var SCHEMA = {
   },
   PROCEDIMIENTOS: {
     name: 'Procedimientos',
-    aliases: ['procedimientos', 'procedimiento', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'catalogoquirurgico', 'procedures', 'procedure'],
+    aliases: ['procedimientos', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'catalogoquirurgico', 'procedures'],
     headers: [
       'ID Procedimiento', 'Código', 'Nombre', 'Categoría', 'Precio Base ($)',
       'Duración (min)', 'Requiere Quirófano', 'Comisión Doctor (%)', 'Activo'
@@ -111,26 +111,50 @@ function buscarHoja(ss, tableDef) {
  */
 function depurarPestanaProcedimiento(ss) {
   try {
-    var pluralSheet = ss.getSheetByName('Procedimientos');
-    var singularSheet = ss.getSheetByName('Procedimiento');
+    var allSheets = ss.getSheets();
+    var pluralSheet = null;
+    var singularSheetsToDelete = [];
 
-    if (pluralSheet && singularSheet) {
-      var lastRowSingular = singularSheet.getLastRow();
-      var lastRowPlural = pluralSheet.getLastRow();
-      // Si la hoja singular tiene procedimientos registrados y la plural está vacía o sin datos
-      if (lastRowSingular > 1 && lastRowPlural <= 1) {
-        var numCols = Math.min(singularSheet.getLastColumn(), 9);
-        if (numCols > 0) {
-          var dataToMigrate = singularSheet.getRange(2, 1, lastRowSingular - 1, numCols).getValues();
-          asegurarDimensionesHoja(pluralSheet, 1 + dataToMigrate.length, 9);
-          pluralSheet.getRange(2, 1, dataToMigrate.length, numCols).setValues(dataToMigrate);
+    for (var i = 0; i < allSheets.length; i++) {
+      var current = allSheets[i];
+      var sName = current.getName().trim();
+      var sNorm = normalizarTexto(sName);
+      if (sName === 'Procedimientos' || sNorm === 'procedimientos') {
+        if (!pluralSheet) {
+          pluralSheet = current;
+          if (current.getName() !== 'Procedimientos') {
+            current.setName('Procedimientos');
+          }
+        }
+      } else if (sName === 'Procedimiento' || sNorm === 'procedimiento') {
+        singularSheetsToDelete.push(current);
+      }
+    }
+
+    if (!pluralSheet && singularSheetsToDelete.length > 0) {
+      pluralSheet = singularSheetsToDelete.shift();
+      pluralSheet.setName('Procedimientos');
+    }
+
+    if (pluralSheet) {
+      for (var k = 0; k < singularSheetsToDelete.length; k++) {
+        var sing = singularSheetsToDelete[k];
+        try {
+          var lastRowSing = sing.getLastRow();
+          var lastRowPlur = pluralSheet.getLastRow();
+          if (lastRowSing > 1 && lastRowPlur <= 1) {
+            var numCols = Math.min(sing.getLastColumn(), 9);
+            if (numCols > 0) {
+              var dataToMigrate = sing.getRange(2, 1, lastRowSing - 1, numCols).getValues();
+              asegurarDimensionesHoja(pluralSheet, 1 + dataToMigrate.length, 9);
+              pluralSheet.getRange(2, 1, dataToMigrate.length, numCols).setValues(dataToMigrate);
+            }
+          }
+          ss.deleteSheet(sing);
+        } catch (eDel) {
+          Logger.log('Aviso al eliminar hoja singular: ' + eDel.toString());
         }
       }
-      // Eliminar definitivamente la hoja singular "Procedimiento"
-      ss.deleteSheet(singularSheet);
-    } else if (!pluralSheet && singularSheet) {
-      // Si solo existe la hoja singular, renombrarla a "Procedimientos"
-      singularSheet.setName('Procedimientos');
     }
   } catch (err) {
     Logger.log('Aviso al depurar pestañas de Procedimientos: ' + err.toString());
@@ -253,12 +277,23 @@ function doGet(e) {
   if (action === 'GET_ALL') {
     return responderJSON(obtenerTodosLosDatos(ss));
   }
+  if (action === 'CLEANUP_PROCEDURE_SHEETS' || action === 'CLEANUP_PROCEDURES_TAB') {
+    depurarPestanaProcedimiento(ss);
+    return responderJSON({
+      status: 'ok',
+      message: 'Hoja singular "Procedimiento" depurada exitosamente. Se conserva únicamente "Procedimientos" (Plural).',
+      sheetsFound: ss.getSheets().map(function(s) { return s.getName(); })
+    });
+  }
   return responderJSON({
     status: 'ok',
     message: 'Servicio Web App Dr. Belleza activo (Hoja oficial: Procedimientos)',
     spreadsheetName: ss.getName(),
     spreadsheetId: ss.getId(),
-    spreadsheetUrl: ss.getUrl()
+    spreadsheetUrl: ss.getUrl(),
+    procedureSheetName: 'Procedimientos',
+    sheetsFound: ss.getSheets().map(function(s) { return s.getName(); }),
+    capabilities: ['SAVE_PROCEDURE', 'SAVE_ALL_PROCEDURES', 'DELETE_PROCEDURE', 'BATCH_SYNC', 'CLEANUP_PROCEDURE_SHEETS']
   });
 }
 
@@ -798,6 +833,10 @@ function guardarProcedimiento(ss, proc) {
   if (!proc) return { status: 'error', message: 'Procedimiento no proporcionado' };
   depurarPestanaProcedimiento(ss);
   var sheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
+    formatearEncabezado(sheet, SCHEMA.PROCEDIMIENTOS.headers.length);
+  }
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
   for (var i = 1; i < values.length; i++) {
@@ -988,12 +1027,14 @@ function sincronizarMasivo(ss, data) {
     formatearEncabezado(crmSheet, SCHEMA.CRM.headers.length);
     data.crmEvents.forEach(function(ev) { guardarEventoCRM(ss, ev); });
   }
-  if (data.procedures && Array.isArray(data.procedures) && data.procedures.length > 0) {
+  depurarPestanaProcedimiento(ss);
+  var procsList = data.procedures || data.procedimientos || data.surgicalProcedures;
+  if (procsList && Array.isArray(procsList) && procsList.length > 0) {
     var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
     procSheet.clearContents();
     procSheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
     formatearEncabezado(procSheet, SCHEMA.PROCEDIMIENTOS.headers.length);
-    var procRows = data.procedures.map(function(pr) {
+    var procRows = procsList.map(function(pr) {
       return [
         pr.id,
         pr.code || '',

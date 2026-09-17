@@ -23,7 +23,7 @@ import {
 import { GoogleSheetConfig } from '../types';
 import { User } from 'firebase/auth';
 import { CODE_GS_SOURCE } from '../services/gasCodeTemplate';
-import { testGasConnection } from '../services/gasService';
+import { testGasConnection, testProcedureSyncInGas } from '../services/gasService';
 
 interface GoogleSheetsSettingsModalProps {
   isOpen: boolean;
@@ -75,6 +75,12 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
     spreadsheetName?: string;
     sheetsFound?: string[];
   } | null>(null);
+  const [procedureDiagResult, setProcedureDiagResult] = useState<{
+    success: boolean;
+    message: string;
+    isOutdated?: boolean;
+  } | null>(null);
+  const [isTestingProcedures, setIsTestingProcedures] = useState(false);
 
   if (!isOpen) return null;
 
@@ -193,6 +199,35 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
       setErrorMessage(e.message || 'Error al limpiar las pestañas duplicadas');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleTestProcedureSyncClick = async () => {
+    const url = sheetConfig.gasDeploymentUrl || gasUrlInput;
+    if (!url) {
+      setErrorMessage('Por favor ingresa o conecta una URL de Google Apps Script primero.');
+      return;
+    }
+    setIsTestingProcedures(true);
+    setProcedureDiagResult(null);
+    setActionSuccessMessage(null);
+    setErrorMessage(null);
+    try {
+      const res = await testProcedureSyncInGas(url.trim());
+      setProcedureDiagResult(res);
+      if (res.success) {
+        setActionSuccessMessage(res.message);
+      } else if (res.isOutdated) {
+        setErrorMessage(res.message);
+      }
+    } catch (err: any) {
+      setProcedureDiagResult({
+        success: false,
+        message: err.message || 'Error al diagnosticar guardado de procedimientos',
+      });
+      setErrorMessage(err.message || 'Error al diagnosticar guardado de procedimientos');
+    } finally {
+      setIsTestingProcedures(false);
     }
   };
 
@@ -386,6 +421,21 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
                       </button>
                     )}
 
+                    <button
+                      type="button"
+                      onClick={handleTestProcedureSyncClick}
+                      disabled={isLoading || isTestingProcedures}
+                      className="flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors disabled:opacity-50 cursor-pointer"
+                      title="Verifica si Google Apps Script recibe y guarda procedimientos en la hoja Procedimientos"
+                    >
+                      {isTestingProcedures ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      )}
+                      <span>{isTestingProcedures ? 'Verificando...' : 'Diagnosticar Procedimientos'}</span>
+                    </button>
+
                     {sheetConfig.spreadsheetUrl && (
                       <a
                         href={sheetConfig.spreadsheetUrl}
@@ -398,6 +448,44 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
                       </a>
                     )}
                   </div>
+
+                  {/* Procedure Diagnosis Banner */}
+                  {procedureDiagResult && (
+                    <div
+                      className={`p-3 rounded-xl border text-xs ${
+                        procedureDiagResult.success
+                          ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
+                          : 'bg-amber-50 border-amber-300 text-amber-950'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-2.5">
+                        {procedureDiagResult.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        )}
+                        <div className="space-y-1 flex-1">
+                          <p className="font-bold">{procedureDiagResult.message}</p>
+                          {procedureDiagResult.isOutdated && (
+                            <div className="mt-2 p-2.5 bg-white/90 rounded-lg border border-amber-200/80 text-[11px] text-slate-800 space-y-1.5">
+                              <p className="font-bold text-amber-950">
+                                📌 Pasos para activar el guardado de procedimientos en 1 minuto:
+                              </p>
+                              <ol className="list-decimal list-inside space-y-1 text-slate-700">
+                                <li>Haz clic en el botón verde <strong>"Copiar Código Code.gs"</strong> más abajo.</li>
+                                <li>En tu Google Sheets ve a: <strong>Extensiones &gt; Apps Script</strong> y pega el código reemplazando todo.</li>
+                                <li>Guarda el archivo con el ícono del disquete (💾).</li>
+                                <li>Haz clic en el botón azul superior <strong>Implementar &gt; Administrar implementaciones</strong>.</li>
+                                <li>Haz clic en el <strong>ícono de lápiz ✏️ (Editar)</strong> al lado de tu implementación activa.</li>
+                                <li>En el selector de <strong>Versión</strong>, elige <strong>"Nueva versión"</strong>.</li>
+                                <li>Haz clic en <strong>"Implementar"</strong> y vuelve a hacer clic en <strong>"Diagnosticar Procedimientos"</strong> aquí.</li>
+                              </ol>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 /* Connect Input Form */
@@ -469,11 +557,11 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
                     selecciona la función <code className="font-bold text-emerald-900">inicializarBaseDeDatos</code> y haz clic en{' '}
                     <strong className="text-emerald-900">"Ejecutar"</strong>.
                     <span className="block text-[11px] text-slate-600 ml-4 mt-0.5">
-                      (Google te pedirá autorizar permisos una sola vez. Al ejecutarse creará automáticamente las hojas: Pacientes, Abonos, Reintegros, Usuarios, Recordatorios_CRM, Procedimiento y Planes_Financiamiento).
+                      (Google te pedirá autorizar permisos una sola vez. Al ejecutarse creará automáticamente las hojas: Pacientes, Abonos, Reintegros, Usuarios, Recordatorios_CRM, Procedimientos [Plural] y Planes_Financiamiento).
                     </span>
                   </li>
                   <li className="pl-1">
-                    <strong>Publicar la Web App:</strong> Arriba a la derecha haz clic en el botón azul{' '}
+                    <strong>Publicar la Web App (Primera vez):</strong> Arriba a la derecha haz clic en el botón azul{' '}
                     <strong>"Implementar"</strong> &gt; <strong>"Nueva implementación"</strong>:
                     <ul className="list-disc list-inside ml-4 mt-1 text-[11px] space-y-0.5 text-slate-600">
                       <li>Haz clic en el engranaje (⚙️) y selecciona <strong>"Aplicación web"</strong>.</li>
@@ -482,6 +570,13 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
                         Quién tiene acceso: <strong className="text-emerald-800">"Cualquiera"</strong> (CRÍTICO para que Vercel y tu Web App puedan comunicarse sin error de CORS).
                       </li>
                     </ul>
+                  </li>
+                  <li className="pl-1 bg-amber-50/80 p-2.5 rounded-lg border border-amber-200">
+                    <strong className="text-amber-950">¿Ya tenías una Web App implementada? (Obligatorio para que reciba Procedimientos):</strong>
+                    <span className="block text-[11px] text-slate-700 mt-1 leading-relaxed">
+                      En Apps Script ve a: <strong>Implementar &gt; Administrar implementaciones &gt; Editar (ícono lápiz ✏️) &gt; Versión: "Nueva versión" &gt; Implementar</strong>.
+                      Al seleccionar "Nueva versión", tu enlace <code>/exec</code> conservará la misma URL pero se actualizará para recibir los procedimientos de inmediato en la hoja "Procedimientos".
+                    </span>
                   </li>
                   <li className="pl-1">
                     Copia la <strong>URL de la aplicación web</strong> (termina en <code>/exec</code>) y pégala en el campo de arriba.

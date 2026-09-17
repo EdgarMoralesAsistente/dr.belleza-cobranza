@@ -564,6 +564,8 @@ export default function App() {
     }
 
     showToast(`¡Bienvenido de vuelta, ${user.fullName}! Sesión iniciada con éxito.`);
+    // Refrescar automáticamente los datos y procedimientos desde Google Sheets al iniciar sesión
+    handleImportFromGas(true).catch(console.warn);
   };
 
   const handleDenyNonSuperAdminSheetAccess = () => {
@@ -1290,64 +1292,67 @@ export default function App() {
     const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
     const token = await getAccessToken();
     let synced = false;
+    let syncErrorMessage: string | null = null;
 
     if (gasUrl) {
       // Eliminar cualquier pestaña singular "Procedimiento" duplicada
       cleanupProcedureSheetsInGas(gasUrl).catch(console.warn);
 
-      // 1. Send single procedure immediately using SAVE_PROCEDURE
-      // This is supported across all Apps Script deployments (legacy and modern)
-      if (singleProcedure) {
-        saveProcedureToGas(gasUrl, singleProcedure).catch((err) => {
-          console.warn('Fallo en auto-sync saveProcedureToGas:', err);
-        });
-        synced = true;
-      }
-
-      // 2. Also ensure entire catalog is stored in Google Sheets
       try {
-        await saveAllProceduresToGas(gasUrl, updatedProcedures);
-        synced = true;
-      } catch (errGas) {
-        console.warn('Fallo en saveAllProceduresToGas, reintentando con fallback:', errGas);
-        try {
-          await batchSyncToGas(gasUrl, {
-            patients,
-            payments,
-            refunds,
-            users,
-            crmEvents,
-            procedures: updatedProcedures,
-            financingPlans,
-          });
-          synced = true;
-        } catch {
-          for (const p of updatedProcedures) {
-            saveProcedureToGas(gasUrl, p).catch(console.warn);
+        if (singleProcedure) {
+          try {
+            await saveProcedureToGas(gasUrl, singleProcedure);
+            synced = true;
+            // Sincronizar el catálogo completo en segundo plano
+            saveAllProceduresToGas(gasUrl, updatedProcedures).catch(console.warn);
+          } catch (errSingle: any) {
+            console.warn('Fallo en saveProcedureToGas, intentando saveAllProceduresToGas:', errSingle);
+            await saveAllProceduresToGas(gasUrl, updatedProcedures);
+            synced = true;
           }
+        } else {
+          await saveAllProceduresToGas(gasUrl, updatedProcedures);
           synced = true;
         }
+      } catch (errGas: any) {
+        console.warn('Fallo guardando procedimiento en Google Apps Script:', errGas);
+        syncErrorMessage = errGas.message || 'Error al comunicarse con Google Apps Script';
       }
     }
 
     if (token && sheetConfig.spreadsheetId) {
-      if (singleProcedure) {
-        updateProcedureInGoogleSheet(token, sheetConfig.spreadsheetId, singleProcedure).catch(console.warn);
-      }
       try {
+        if (singleProcedure) {
+          await updateProcedureInGoogleSheet(token, sheetConfig.spreadsheetId, singleProcedure);
+        }
         await syncAllProceduresToGoogleSheet(token, sheetConfig.spreadsheetId, updatedProcedures);
         synced = true;
-      } catch (errOAuth) {
+      } catch (errOAuth: any) {
         console.error('Error sincronizando procedimientos con Google Sheets API:', errOAuth);
+        if (!synced) {
+          syncErrorMessage = errOAuth.message || 'Error con Google Sheets API';
+        }
       }
     }
 
     if (synced) {
       const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
       setSheetConfig((prev) => ({ ...prev, lastSyncTime: now }));
-      showToast(`✓ Procedimiento quirúrgico guardado y sincronizado automáticamente en Google Sheets`);
+      showToast('✓ Procedimiento guardado y registrado en la pestaña "Procedimientos" de Google Sheets');
+    } else if (syncErrorMessage) {
+      if (
+        syncErrorMessage.includes('SAVE_PROCEDURE') ||
+        syncErrorMessage.includes('actualizarse') ||
+        syncErrorMessage.includes('Acción no reconocida')
+      ) {
+        showToast(
+          '⚠️ Procedimiento guardado en la app. En Google Sheets ve a: Extensiones > Apps Script > Implementar > Administrar implementaciones > Editar > "Nueva versión" para recibirlo en la hoja Procedimientos.'
+        );
+      } else {
+        showToast(`Procedimiento guardado en la app. Google Sheets: ${syncErrorMessage}`);
+      }
     } else if (!gasUrl && (!token || !sheetConfig.spreadsheetId)) {
-      showToast('Procedimiento guardado localmente (conecte Google Sheets para sincronizar)');
+      showToast('Procedimiento guardado localmente (conecta Google Sheets para sincronizar en la nube)');
     }
   };
 
