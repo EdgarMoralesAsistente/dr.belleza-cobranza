@@ -42,6 +42,7 @@ interface GoogleSheetsSettingsModalProps {
   onDisconnectGas?: () => void;
   onSyncAllToGas?: () => Promise<void>;
   onImportFromGas?: () => Promise<void>;
+  onCleanupProcedureSheets?: () => Promise<void>;
 }
 
 export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps> = ({
@@ -60,6 +61,7 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
   onDisconnectGas,
   onSyncAllToGas,
   onImportFromGas,
+  onCleanupProcedureSheets,
 }) => {
   const [activeTab, setActiveTab] = useState<'gas' | 'oauth'>('gas');
   const [gasUrlInput, setGasUrlInput] = useState(sheetConfig.gasDeploymentUrl || '');
@@ -174,6 +176,21 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
       setActionSuccessMessage('¡Datos actualizados exitosamente en la Web App desde Google Sheets!');
     } catch (e: any) {
       setErrorMessage(e.message || 'Error al importar datos desde Google Sheets');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCleanupTabsClick = async () => {
+    if (!onCleanupProcedureSheets) return;
+    setIsLoading(true);
+    setActionSuccessMessage(null);
+    setErrorMessage(null);
+    try {
+      await onCleanupProcedureSheets();
+      setActionSuccessMessage('¡Pestaña "Procedimiento" eliminada exitosamente! Se conserva únicamente la pestaña "Procedimientos" con todos los datos sincronizados.');
+    } catch (e: any) {
+      setErrorMessage(e.message || 'Error al limpiar las pestañas duplicadas');
     } finally {
       setIsLoading(false);
     }
@@ -355,6 +372,19 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
                       <DownloadCloud className="w-3.5 h-3.5" />
                       <span>Traer Datos desde Google Sheets</span>
                     </button>
+
+                    {onCleanupProcedureSheets && (
+                      <button
+                        type="button"
+                        onClick={handleCleanupTabsClick}
+                        disabled={isLoading}
+                        className="flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors disabled:opacity-50 cursor-pointer"
+                        title="Elimina la pestaña duplicada 'Procedimiento' (singular) y conserva únicamente 'Procedimientos' (plural) con todos los datos"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Eliminar Pestaña "Procedimiento" Duplicada</span>
+                      </button>
+                    )}
 
                     {sheetConfig.spreadsheetUrl && (
                       <a

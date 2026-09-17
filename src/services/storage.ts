@@ -480,6 +480,9 @@ export function saveLocalRefunds(refunds: Refund[]): void {
   }
 }
 
+export const DEFAULT_GAS_URL =
+  'https://script.google.com/macros/s/AKfycbx6ca4jfxraaRb0GnfwKSTpMshf56XuQ8WLsvVYj5kKKPiTBSZIuO4laddN_BUVf6dabg/exec';
+
 export function getEffectiveGasUrl(): string | null {
   const envUrl =
     (import.meta as any).env?.GOOGLE_APPS_SCRIPT_URL ||
@@ -500,16 +503,16 @@ export function getEffectiveGasUrl(): string | null {
       }
     }
   } catch {}
-  return null;
+  return DEFAULT_GAS_URL;
 }
 
 export function loadGoogleSheetConfig(): GoogleSheetConfig {
-  const envGasUrl = getEffectiveGasUrl();
+  const envGasUrl = getEffectiveGasUrl() || DEFAULT_GAS_URL;
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.SHEET_CONFIG);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (!parsed.gasDeploymentUrl && envGasUrl) {
+      if (!parsed.gasDeploymentUrl || !parsed.gasDeploymentUrl.trim().startsWith('https://script.google.com/')) {
         parsed.gasDeploymentUrl = envGasUrl;
       }
       if (!parsed.syncMode) {

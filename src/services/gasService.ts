@@ -43,10 +43,27 @@ async function postToGas(url: string, payload: Record<string, any>, timeoutMs = 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      if (response.status === 403 || response.status === 401) {
+        throw new Error(
+          'Google Apps Script respondió con HTTP 403 (Acceso Denegado). En la configuración de la implementación en Apps Script, asegúrate de que "Quién tiene acceso" (Who has access) esté configurado como "Cualquiera" (Anyone).'
+        );
+      }
       throw new Error(`Error de comunicación con Google Apps Script (HTTP ${response.status})`);
     }
 
-    const result = await response.json();
+    const rawText = await response.text();
+    let result: any;
+    try {
+      result = JSON.parse(rawText);
+    } catch {
+      if (rawText.includes('<html') || rawText.includes('<!DOCTYPE') || rawText.includes('Page not found')) {
+        throw new Error(
+          'Google Apps Script devolvió una página HTML en lugar de JSON. Verifica en Apps Script que la implementación esté publicada como Aplicación Web con "Quién tiene acceso: Cualquier usuario" (Anyone).'
+        );
+      }
+      throw new Error(`Respuesta no válida de Google Apps Script: ${rawText.slice(0, 120)}`);
+    }
+
     if (result.status === 'error') {
       throw new Error(result.message || 'Error devuelto por Google Apps Script');
     }
@@ -291,4 +308,21 @@ export async function batchSyncToGas(
     action: 'BATCH_SYNC',
     ...data,
   });
+}
+
+/**
+ * Envía la orden a Google Apps Script para eliminar la hoja obsoleta "Procedimiento" (Singular)
+ * y consolidar todo en la hoja oficial "Procedimientos" (Plural).
+ */
+export async function cleanupProcedureSheetsInGas(gasUrl: string): Promise<{
+  success: boolean;
+  message: string;
+  sheetsFound?: string[];
+}> {
+  const res = await postToGas(gasUrl, { action: 'CLEANUP_PROCEDURE_SHEETS' });
+  return {
+    success: true,
+    message: res.message || 'Limpieza de hojas completada',
+    sheetsFound: res.sheetsFound,
+  };
 }

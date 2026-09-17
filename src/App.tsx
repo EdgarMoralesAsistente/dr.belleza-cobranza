@@ -105,6 +105,7 @@ import {
   deleteFinancingPlanFromGas,
   saveAllFinancingPlansToGas,
   batchSyncToGas,
+  cleanupProcedureSheetsInGas,
 } from './services/gasService';
 import { User } from 'firebase/auth';
 import { FileSpreadsheet, Sparkles, CheckCircle2, ShieldAlert, Lock, ArrowRightLeft } from 'lucide-react';
@@ -882,6 +883,10 @@ export default function App() {
     }
     setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
     try {
+      // 1. Asegurar la eliminación de la pestaña singular "Procedimiento" y consolidar en "Procedimientos"
+      await cleanupProcedureSheetsInGas(gasUrl).catch(console.warn);
+
+      // 2. Enviar todos los datos a las hojas consolidadas
       await batchSyncToGas(gasUrl, {
         patients,
         payments,
@@ -897,6 +902,25 @@ export default function App() {
     } catch (err: any) {
       console.error(err);
       setSheetConfig((prev) => ({ ...prev, isSyncing: false, error: err.message }));
+      throw err;
+    }
+  };
+
+  const handleCleanupProcedureSheets = async () => {
+    const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    if (!gasUrl) {
+      showToast('No hay una URL de Google Apps Script configurada.');
+      return;
+    }
+    try {
+      showToast('Ejecutando limpieza de pestañas en Google Sheets...');
+      const res = await cleanupProcedureSheetsInGas(gasUrl);
+      // Volver a volcar los procedimientos actuales para asegurar que la hoja "Procedimientos" esté al día
+      await saveAllProceduresToGas(gasUrl, procedures).catch(console.warn);
+      showToast(res.message || 'Pestaña singular "Procedimiento" eliminada. Conservada solo "Procedimientos".');
+    } catch (err: any) {
+      console.error(err);
+      showToast(`Error al depurar hojas: ${err.message}`);
       throw err;
     }
   };
@@ -1268,6 +1292,9 @@ export default function App() {
     let synced = false;
 
     if (gasUrl) {
+      // Eliminar cualquier pestaña singular "Procedimiento" duplicada
+      cleanupProcedureSheetsInGas(gasUrl).catch(console.warn);
+
       // 1. Send single procedure immediately using SAVE_PROCEDURE
       // This is supported across all Apps Script deployments (legacy and modern)
       if (singleProcedure) {
@@ -1696,6 +1723,7 @@ export default function App() {
         onDisconnectGas={handleDisconnectGas}
         onSyncAllToGas={handleSyncAllToGas}
         onImportFromGas={handleImportFromGas}
+        onCleanupProcedureSheets={handleCleanupProcedureSheets}
       />
 
       {/* User Profile Details & Password Modal */}

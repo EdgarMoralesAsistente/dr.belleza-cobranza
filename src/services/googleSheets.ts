@@ -5,13 +5,13 @@ export const SHEET_NAMES = {
   PAYMENTS: 'Historial de Pagos',
   REFUNDS: 'Historial de Reintegros',
   USERS: 'Usuarios',
-  PROCEDURES: 'Procedimiento', // Soporta 'Procedimiento' (singular) y 'Procedimientos' (plural)
+  PROCEDURES: 'Procedimientos', // PLURAL - Garantiza una única hoja oficial
   PLANES: 'Planes_Financiamiento',
 };
 
 // Aliases para resolver nombres dinámicos de pestañas en Google Sheets
 export const SHEET_ALIASES: Record<string, string[]> = {
-  [SHEET_NAMES.PROCEDURES]: ['procedimiento', 'procedimientos', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'procedures', 'procedure'],
+  [SHEET_NAMES.PROCEDURES]: ['procedimientos', 'procedimiento', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'procedures', 'procedure'],
   [SHEET_NAMES.PLANES]: ['planes_financiamiento', 'planes financiamiento', 'planes', 'plan', 'financiamiento'],
   [SHEET_NAMES.PATIENTS]: ['pacientes', 'paciente', 'patients', 'patient'],
   [SHEET_NAMES.PAYMENTS]: ['historial de pagos', 'historial_de_pagos', 'abonos', 'abono', 'pagos', 'pago', 'payments'],
@@ -61,6 +61,61 @@ export async function resolveSheetTabName(
       const sheets = meta.sheets || [];
       const targetNorm = normalizeTabName(preferredName);
       const allAliasesNorm = [targetNorm, ...aliases.map(normalizeTabName)];
+
+      // Si estamos resolviendo la hoja de Procedimientos, eliminar la hoja singular "Procedimiento" si ambas existen
+      if (preferredName === SHEET_NAMES.PROCEDURES) {
+        const pluralSheet = sheets.find((s: any) => s?.properties?.title?.toLowerCase() === 'procedimientos');
+        const singularSheet = sheets.find((s: any) => s?.properties?.title?.toLowerCase() === 'procedimiento');
+
+        if (pluralSheet && singularSheet) {
+          const singularSheetId = singularSheet.properties?.sheetId;
+          if (typeof singularSheetId === 'number') {
+            try {
+              await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  requests: [{ deleteSheet: { sheetId: singularSheetId } }],
+                }),
+              });
+            } catch (err) {
+              console.warn('No se pudo eliminar la hoja duplicada "Procedimiento":', err);
+            }
+          }
+          tabNameCache.set(cacheKey, 'Procedimientos');
+          return 'Procedimientos';
+        } else if (!pluralSheet && singularSheet) {
+          const singularSheetId = singularSheet.properties?.sheetId;
+          if (typeof singularSheetId === 'number') {
+            try {
+              await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  requests: [
+                    {
+                      updateSheetProperties: {
+                        properties: { sheetId: singularSheetId, title: 'Procedimientos' },
+                        fields: 'title',
+                      },
+                    },
+                  ],
+                }),
+              });
+              tabNameCache.set(cacheKey, 'Procedimientos');
+              return 'Procedimientos';
+            } catch (err) {
+              console.warn('No se pudo renombrar "Procedimiento" a "Procedimientos":', err);
+            }
+          }
+        }
+      }
 
       // 1. Coincidencia exacta
       for (const s of sheets) {

@@ -55,8 +55,8 @@ var SCHEMA = {
     ]
   },
   PROCEDIMIENTOS: {
-    name: 'Procedimiento',
-    aliases: ['procedimiento', 'procedimientos', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'catalogoquirurgico', 'procedures', 'procedure'],
+    name: 'Procedimientos',
+    aliases: ['procedimientos', 'procedimiento', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'catalogoquirurgico', 'procedures', 'procedure'],
     headers: [
       'ID Procedimiento', 'Código', 'Nombre', 'Categoría', 'Precio Base ($)',
       'Duración (min)', 'Requiere Quirófano', 'Comisión Doctor (%)', 'Activo'
@@ -104,16 +104,57 @@ function buscarHoja(ss, tableDef) {
   return null;
 }
 
+/**
+ * Elimina automáticamente la pestaña duplicada "Procedimiento" (Singular)
+ * conservando exclusivamente la hoja oficial "Procedimientos" (Plural).
+ * Si la hoja singular contiene datos y la plural está vacía, migra los registros.
+ */
+function depurarPestanaProcedimiento(ss) {
+  try {
+    var pluralSheet = ss.getSheetByName('Procedimientos');
+    var singularSheet = ss.getSheetByName('Procedimiento');
+
+    if (pluralSheet && singularSheet) {
+      var lastRowSingular = singularSheet.getLastRow();
+      var lastRowPlural = pluralSheet.getLastRow();
+      // Si la hoja singular tiene procedimientos registrados y la plural está vacía o sin datos
+      if (lastRowSingular > 1 && lastRowPlural <= 1) {
+        var numCols = Math.min(singularSheet.getLastColumn(), 9);
+        if (numCols > 0) {
+          var dataToMigrate = singularSheet.getRange(2, 1, lastRowSingular - 1, numCols).getValues();
+          asegurarDimensionesHoja(pluralSheet, 1 + dataToMigrate.length, 9);
+          pluralSheet.getRange(2, 1, dataToMigrate.length, numCols).setValues(dataToMigrate);
+        }
+      }
+      // Eliminar definitivamente la hoja singular "Procedimiento"
+      ss.deleteSheet(singularSheet);
+    } else if (!pluralSheet && singularSheet) {
+      // Si solo existe la hoja singular, renombrarla a "Procedimientos"
+      singularSheet.setName('Procedimientos');
+    }
+  } catch (err) {
+    Logger.log('Aviso al depurar pestañas de Procedimientos: ' + err.toString());
+  }
+}
+
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('🏥 Dr. Belleza')
     .addItem('🚀 Inicializar / Crear Tablas Automáticamente', 'inicializarBaseDeDatos')
+    .addItem('🧹 Eliminar Hoja "Procedimiento" (Dejar solo "Procedimientos")', 'ejecutarLimpiezaProcedimientos')
     .addItem('🔄 Reparar Encabezados y Formato', 'repararEncabezados')
     .addToUi();
 }
 
+function ejecutarLimpiezaProcedimientos() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  depurarPestanaProcedimiento(ss);
+  SpreadsheetApp.getUi().alert('Limpieza exitosa: La hoja singular "Procedimiento" ha sido eliminada. La única hoja activa es "Procedimientos" (Plural).');
+}
+
 function inicializarBaseDeDatos() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  depurarPestanaProcedimiento(ss);
   for (var key in SCHEMA) {
     var table = SCHEMA[key];
     var sheet = buscarHoja(ss, table);
@@ -134,8 +175,9 @@ function inicializarBaseDeDatos() {
     }
   } catch (e) {}
 
+  depurarPestanaProcedimiento(ss);
   sembrarDatosIniciales(ss);
-  return { status: 'ok', message: 'Tablas inicializadas correctamente' };
+  return { status: 'ok', message: 'Tablas inicializadas correctamente (Hoja única: Procedimientos)' };
 }
 
 function formatearEncabezado(sheet, columnCount) {
@@ -206,13 +248,14 @@ function sembrarDatosIniciales(ss) {
 
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  depurarPestanaProcedimiento(ss);
   var action = (e && e.parameter && e.parameter.action) || 'PING';
   if (action === 'GET_ALL') {
     return responderJSON(obtenerTodosLosDatos(ss));
   }
   return responderJSON({
     status: 'ok',
-    message: 'Servicio Web App Dr. Belleza activo',
+    message: 'Servicio Web App Dr. Belleza activo (Hoja oficial: Procedimientos)',
     spreadsheetName: ss.getName(),
     spreadsheetId: ss.getId(),
     spreadsheetUrl: ss.getUrl()
@@ -224,6 +267,7 @@ function doPost(e) {
   try {
     lock.waitLock(30000);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    depurarPestanaProcedimiento(ss);
 
     for (var key in SCHEMA) {
       if (!buscarHoja(ss, SCHEMA[key])) {
@@ -241,6 +285,7 @@ function doPost(e) {
 
     switch (action) {
       case 'PING':
+        depurarPestanaProcedimiento(ss);
         var procSheetFound = buscarHoja(ss, SCHEMA.PROCEDIMIENTOS);
         return responderJSON({
           status: 'ok',
@@ -248,9 +293,18 @@ function doPost(e) {
           spreadsheetName: ss.getName(),
           spreadsheetId: ss.getId(),
           spreadsheetUrl: ss.getUrl(),
-          procedureSheetName: procSheetFound ? procSheetFound.getName() : null,
+          procedureSheetName: procSheetFound ? procSheetFound.getName() : 'Procedimientos',
           sheetsFound: ss.getSheets().map(function(s) { return s.getName(); }),
           capabilities: ['procedures', 'financing_plans', 'crm_events', 'batch_sync']
+        });
+
+      case 'CLEANUP_PROCEDURE_SHEETS':
+      case 'CLEANUP_PROCEDURES_TAB':
+        depurarPestanaProcedimiento(ss);
+        return responderJSON({
+          status: 'ok',
+          message: 'Hoja singular "Procedimiento" eliminada exitosamente. Se conserva únicamente "Procedimientos" (Plural).',
+          sheetsFound: ss.getSheets().map(function(s) { return s.getName(); })
         });
 
       case 'GET_ALL':
@@ -321,6 +375,7 @@ function responderJSON(obj) {
 }
 
 function obtenerTodosLosDatos(ss) {
+  depurarPestanaProcedimiento(ss);
   return {
     status: 'ok',
     patients: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.PACIENTES), mapearPacienteDesdeFila),
@@ -741,6 +796,7 @@ function guardarEventoCRM(ss, ev) {
 
 function guardarProcedimiento(ss, proc) {
   if (!proc) return { status: 'error', message: 'Procedimiento no proporcionado' };
+  depurarPestanaProcedimiento(ss);
   var sheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
@@ -792,6 +848,7 @@ function borrarProcedimiento(ss, procId) {
 }
 
 function guardarTodosProcedimientos(ss, proceduresList) {
+  depurarPestanaProcedimiento(ss);
   var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
   procSheet.clearContents();
   procSheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
