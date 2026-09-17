@@ -466,6 +466,11 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
                         )}
                         <div className="space-y-1 flex-1">
                           <p className="font-bold">{procedureDiagResult.message}</p>
+                          {procedureDiagResult.details && (
+                            <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                              {procedureDiagResult.details}
+                            </p>
+                          )}
                           {procedureDiagResult.isOutdated && (
                             <div className="mt-2 p-2.5 bg-white/90 rounded-lg border border-amber-200/80 text-[11px] text-slate-800 space-y-1.5">
                               <p className="font-bold text-amber-950">

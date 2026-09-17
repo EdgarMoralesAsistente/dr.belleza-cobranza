@@ -285,6 +285,17 @@ function doGet(e) {
       sheetsFound: ss.getSheets().map(function(s) { return s.getName(); })
     });
   }
+  if (action === 'TEST_PROCEDURE') {
+    var procSheet = buscarHoja(ss, SCHEMA.PROCEDIMIENTOS);
+    var count = procSheet ? Math.max(0, procSheet.getLastRow() - 1) : 0;
+    return responderJSON({
+      status: 'ok',
+      message: 'Hoja "Procedimientos" verificada y lista para recibir datos.',
+      procedureSheetFound: !!procSheet,
+      procedureCount: count,
+      spreadsheetName: ss.getName()
+    });
+  }
   return responderJSON({
     status: 'ok',
     message: 'Servicio Web App Dr. Belleza activo (Hoja oficial: Procedimientos)',
@@ -299,8 +310,13 @@ function doGet(e) {
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
+  var hasLock = false;
   try {
-    lock.waitLock(30000);
+    try {
+      hasLock = lock.tryLock(8000);
+    } catch (eLock) {
+      Logger.log('Aviso al intentar lock: ' + eLock);
+    }
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     depurarPestanaProcedimiento(ss);
 
@@ -400,7 +416,11 @@ function doPost(e) {
   } catch (error) {
     return responderJSON({ status: 'error', message: error.toString() });
   } finally {
-    lock.releaseLock();
+    if (hasLock) {
+      try {
+        lock.releaseLock();
+      } catch (eRelease) {}
+    }
   }
 }
 

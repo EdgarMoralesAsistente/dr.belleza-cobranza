@@ -1301,7 +1301,7 @@ export default function App() {
       try {
         if (singleProcedure) {
           try {
-            await saveProcedureToGas(gasUrl, singleProcedure);
+            await saveProcedureToGas(gasUrl, singleProcedure, updatedProcedures);
             synced = true;
             // Sincronizar el catálogo completo en segundo plano
             saveAllProceduresToGas(gasUrl, updatedProcedures).catch(console.warn);
@@ -1365,7 +1365,7 @@ export default function App() {
     const token = await getAccessToken();
 
     if (gasUrl) {
-      deleteProcedureFromGas(gasUrl, procedureId).catch(console.warn);
+      deleteProcedureFromGas(gasUrl, procedureId, updated).catch(console.warn);
       saveAllProceduresToGas(gasUrl, updated).catch(console.warn);
     }
     if (token && sheetConfig.spreadsheetId) {
