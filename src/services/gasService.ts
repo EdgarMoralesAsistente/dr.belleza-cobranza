@@ -243,7 +243,7 @@ export async function saveProcedureToGas(
       procedure,
     });
   } catch (err: any) {
-    // Si la versión desplegada no reconoce SAVE_PROCEDURE, usar BATCH_SYNC como fallback automático
+    // Si la versión desplegada no reconoce SAVE_PROCEDURE, intentar SAVE_ALL_PROCEDURES
     if (err.message && (err.message.includes('Acción no reconocida') || err.message.includes('SAVE_PROCEDURE'))) {
       const procsToSync = allProcedures && allProcedures.length > 0
         ? (allProcedures.some((p) => p.id === procedure.id)
@@ -251,7 +251,7 @@ export async function saveProcedureToGas(
             : [...allProcedures, procedure])
         : [procedure];
       return await postToGas(gasUrl, {
-        action: 'BATCH_SYNC',
+        action: 'SAVE_ALL_PROCEDURES',
         procedures: procsToSync,
       });
     }
@@ -275,7 +275,7 @@ export async function deleteProcedureFromGas(
   } catch (err: any) {
     if (err.message && (err.message.includes('Acción no reconocida') || err.message.includes('DELETE_PROCEDURE')) && remainingProcedures) {
       await postToGas(gasUrl, {
-        action: 'BATCH_SYNC',
+        action: 'SAVE_ALL_PROCEDURES',
         procedures: remainingProcedures.filter((p) => p.id !== procedureId),
       });
       return;
@@ -288,21 +288,10 @@ export async function deleteProcedureFromGas(
  * Guarda todos los procedimientos quirúrgicos en Google Sheets
  */
 export async function saveAllProceduresToGas(gasUrl: string, procedures: SurgicalProcedure[]): Promise<any> {
-  try {
-    return await postToGas(gasUrl, {
-      action: 'SAVE_ALL_PROCEDURES',
-      procedures,
-    });
-  } catch (err: any) {
-    // Si la versión desplegada aún no tiene SAVE_ALL_PROCEDURES, recurrir a BATCH_SYNC
-    if (err.message && (err.message.includes('Acción no reconocida') || err.message.includes('SAVE_ALL_PROCEDURES'))) {
-      return await postToGas(gasUrl, {
-        action: 'BATCH_SYNC',
-        procedures,
-      });
-    }
-    throw err;
-  }
+  return await postToGas(gasUrl, {
+    action: 'SAVE_ALL_PROCEDURES',
+    procedures,
+  });
 }
 
 /**
@@ -315,7 +304,7 @@ export async function testProcedureSyncInGas(gasUrl: string): Promise<{
   isCompatibleMode?: boolean;
   details?: string;
 }> {
-  // 1. Intentar método directo SAVE_PROCEDURE
+  // 1. Probar método directo SAVE_PROCEDURE
   try {
     const testProc: SurgicalProcedure = {
       id: 'PRC-DIAG-TEST',
@@ -323,10 +312,8 @@ export async function testProcedureSyncInGas(gasUrl: string): Promise<{
       name: 'Procedimiento de Prueba Diagnóstica',
       category: 'Facial',
       basePrice: 1,
-      durationMinutes: 1,
-      requiresOR: false,
-      doctorCommissionPercent: 0,
       isActive: false,
+      notes: 'Test diagnóstico',
     };
     await postToGas(gasUrl, {
       action: 'SAVE_PROCEDURE',
@@ -336,7 +323,7 @@ export async function testProcedureSyncInGas(gasUrl: string): Promise<{
     try {
       await deleteProcedureFromGas(gasUrl, 'PRC-DIAG-TEST');
     } catch {
-      // Ignorar
+      // Ignorar limpieza
     }
     return {
       success: true,
@@ -345,35 +332,24 @@ export async function testProcedureSyncInGas(gasUrl: string): Promise<{
   } catch (errDirect: any) {
     const directMsg = errDirect.message || '';
 
-    // 2. Si SAVE_PROCEDURE no es reconocido, verificar si BATCH_SYNC y la lectura de procedimientos están operativos
-    try {
-      // Consultar GET_ALL para verificar que la hoja Procedimientos existe y devuelve datos
-      const getAllData = await fetchAllFromGas(gasUrl);
-      const existingProcs = getAllData.procedures || [];
-
-      // Probar que BATCH_SYNC acepta y procesa el array de procedimientos
-      await postToGas(gasUrl, {
-        action: 'BATCH_SYNC',
-        procedures: existingProcs,
-      });
-
-      return {
-        success: true,
-        isCompatibleMode: true,
-        message: `¡Procedimientos Operativos y Conectados! La hoja "Procedimientos" está activa en Google Sheets (${existingProcs.length} procedimientos leídos y sincronizados). Tu catálogo se guardará automáticamente a través del canal compatible BATCH_SYNC.`,
-        details:
-          'Nota opcional: Si deseas habilitar también el comando SAVE_PROCEDURE directo, asegúrate de que al implementar en Google Apps Script selecciones "Nueva versión" en Administrar implementaciones (o copia la nueva URL si creaste una "Nueva implementación").',
-      };
-    } catch (errFallback: any) {
-      const fallbackMsg = errFallback.message || '';
+    // Si SAVE_PROCEDURE no es reconocido, NO dar un falso positivo
+    if (directMsg.includes('Acción no reconocida') || directMsg.includes('SAVE_PROCEDURE')) {
       return {
         success: false,
         isOutdated: true,
-        message: `No se pudo sincronizar procedimientos en Google Sheets: ${directMsg || fallbackMsg}`,
+        message: 'Google Apps Script no tiene activa la versión que procesa procedimientos (Error: Acción no reconocida: SAVE_PROCEDURE).',
         details:
-          'Verifica que el código copiado de Code.gs esté pegado en Apps Script y publicado con una Nueva versión.',
+          'Para solucionarlo en 30 segundos: En tu Apps Script haz clic en "Implementar" > "Administrar implementaciones" > Clic en el icono de lápiz (Editar) > En "Versión" selecciona "Nueva versión" > Clic en "Implementar".',
       };
     }
+
+    return {
+      success: false,
+      isOutdated: true,
+      message: `Error al probar sincronización de procedimientos: ${directMsg}`,
+      details:
+        'Verifica que el código de Code.gs esté pegado completamente y que la Web App tenga permisos de acceso para "Cualquiera".',
+    };
   }
 }
 

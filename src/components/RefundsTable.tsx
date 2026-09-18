@@ -106,7 +106,21 @@ export const RefundsTable: React.FC<RefundsTableProps> = ({
                       {r.patientName}
                     </td>
                     <td className="py-3 px-4 text-xs text-slate-700 max-w-xs">
-                      {r.reason}
+                      <div>{r.reason}</div>
+                      {(r.medicalExpensesAmount || r.adminFeePercent) && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {r.medicalExpensesAmount ? (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                              Exám./Consultas: -${r.medicalExpensesAmount.toLocaleString()}
+                            </span>
+                          ) : null}
+                          {r.adminFeePercent ? (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-50 text-rose-800 border border-rose-200">
+                              Gastos Adm. ({r.adminFeePercent}%): -${r.adminFeeAmount ? r.adminFeeAmount.toLocaleString() : ''}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">

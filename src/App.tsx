@@ -1012,6 +1012,7 @@ export default function App() {
   };
 
   const handleOpenEditPatient = (patient: Patient) => {
+    setSelectedPatientForDetails(null);
     setPatientToEdit(patient);
     setIsEditPatientModalOpen(true);
   };
@@ -1163,6 +1164,7 @@ export default function App() {
 
   // Shortcut triggers
   const handleOpenWhatsAppReminder = (patient: Patient) => {
+    setSelectedPatientForDetails(null);
     setWhatsAppPatient(patient);
     setWhatsAppPayment(undefined);
     setWhatsAppRefund(undefined);
@@ -1171,6 +1173,7 @@ export default function App() {
   };
 
   const handleOpenWhatsAppReceipt = (patient: Patient, payment: Payment) => {
+    setSelectedPatientForDetails(null);
     setWhatsAppPatient(patient);
     setWhatsAppPayment(payment);
     setWhatsAppRefund(undefined);
@@ -1179,6 +1182,7 @@ export default function App() {
   };
 
   const handleOpenWhatsAppRefund = (patient: Patient, refund: Refund) => {
+    setSelectedPatientForDetails(null);
     setWhatsAppPatient(patient);
     setWhatsAppPayment(undefined);
     setWhatsAppRefund(refund);
@@ -1187,11 +1191,13 @@ export default function App() {
   };
 
   const handleOpenNewPaymentWithPatient = (patientId?: string) => {
+    setSelectedPatientForDetails(null);
     setPreselectedPatientIdForPayment(patientId);
     setIsNewPaymentModalOpen(true);
   };
 
   const handleOpenNewRefundWithPatient = (patientId?: string) => {
+    setSelectedPatientForDetails(null);
     setPreselectedPatientIdForRefund(patientId);
     setIsNewRefundModalOpen(true);
   };
@@ -1300,16 +1306,10 @@ export default function App() {
 
       try {
         if (singleProcedure) {
-          try {
-            await saveProcedureToGas(gasUrl, singleProcedure, updatedProcedures);
-            synced = true;
-            // Sincronizar el catálogo completo en segundo plano
-            saveAllProceduresToGas(gasUrl, updatedProcedures).catch(console.warn);
-          } catch (errSingle: any) {
-            console.warn('Fallo en saveProcedureToGas, intentando saveAllProceduresToGas:', errSingle);
-            await saveAllProceduresToGas(gasUrl, updatedProcedures);
-            synced = true;
-          }
+          await saveProcedureToGas(gasUrl, singleProcedure, updatedProcedures);
+          synced = true;
+          // Sincronizar el catálogo completo en segundo plano
+          saveAllProceduresToGas(gasUrl, updatedProcedures).catch(console.warn);
         } else {
           await saveAllProceduresToGas(gasUrl, updatedProcedures);
           synced = true;
@@ -1646,6 +1646,18 @@ export default function App() {
       </div>
 
       {/* Modals */}
+      <PatientDetailModal
+        isOpen={!!selectedPatientForDetails}
+        onClose={() => setSelectedPatientForDetails(null)}
+        patient={selectedPatientForDetails}
+        payments={payments}
+        refunds={refunds}
+        onOpenWhatsApp={handleOpenWhatsAppReminder}
+        onOpenNewPayment={handleOpenNewPaymentWithPatient}
+        onOpenNewRefund={handleOpenNewRefundWithPatient}
+        onEditPatient={handleOpenEditPatient}
+      />
+
       <NewPatientModal
         isOpen={isNewPatientModalOpen}
         onClose={() => setIsNewPatientModalOpen(false)}
@@ -1698,18 +1710,6 @@ export default function App() {
         patients={patients}
         payments={payments}
         refunds={refunds}
-      />
-
-      <PatientDetailModal
-        isOpen={!!selectedPatientForDetails}
-        onClose={() => setSelectedPatientForDetails(null)}
-        patient={selectedPatientForDetails}
-        payments={payments}
-        refunds={refunds}
-        onOpenWhatsApp={handleOpenWhatsAppReminder}
-        onOpenNewPayment={handleOpenNewPaymentWithPatient}
-        onOpenNewRefund={handleOpenNewRefundWithPatient}
-        onEditPatient={handleOpenEditPatient}
       />
 
       <GoogleSheetsSettingsModal

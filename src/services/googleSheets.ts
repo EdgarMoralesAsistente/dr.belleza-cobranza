@@ -245,15 +245,11 @@ const USER_HEADERS = [
 ];
 
 const PROCEDURE_HEADERS = [
-  'ID Procedimiento',
-  'Código',
-  'Nombre',
+  'Código Único',
   'Categoría',
-  'Precio Base ($)',
-  'Duración (min)',
-  'Requiere Quirófano',
-  'Comisión Doctor (%)',
-  'Activo',
+  'Nombre del Procedimiento',
+  'Precio Base (USD)',
+  'Observaciones',
 ];
 
 const FINANCING_PLAN_HEADERS = [
@@ -461,15 +457,11 @@ function userToRow(u: SystemUser): (string | number)[] {
 
 export function procedureToRow(proc: SurgicalProcedure): (string | number)[] {
   return [
-    proc.id,
-    proc.code || '',
-    proc.name || '',
+    proc.code || proc.id || '',
     proc.category || 'Facial',
+    proc.name || '',
     proc.basePrice || 0,
-    proc.durationMinutes || 60,
-    proc.requiresOR !== false ? 'TRUE' : 'FALSE',
-    proc.doctorCommissionPercent || 50,
-    proc.isActive !== false ? 'TRUE' : 'FALSE',
+    proc.notes || '',
   ];
 }
 
@@ -739,17 +731,31 @@ export async function fetchAllFromGoogleSheet(
 
     const procedures: SurgicalProcedure[] = rawProcedures
       .filter((row: any[]) => row && row[0])
-      .map((row: any[]) => ({
-        id: String(row[0]),
-        code: String(row[1] || ''),
-        name: String(row[2] || ''),
-        category: (row[3] as any) || 'Facial',
-        basePrice: Number(row[4]) || 0,
-        durationMinutes: Number(row[5]) || 60,
-        requiresOR: String(row[6]).toUpperCase() !== 'FALSE',
-        doctorCommissionPercent: Number(row[7]) || 50,
-        isActive: String(row[8]).toUpperCase() !== 'FALSE',
-      }));
+      .map((row: any[]) => {
+        // Soporte retrocompatible si la hoja tenía el formato antiguo de 9 o 10 columnas
+        if (row.length >= 8 && typeof row[4] === 'number') {
+          return {
+            id: String(row[0]),
+            code: String(row[1] || row[0]),
+            name: String(row[2] || ''),
+            category: (row[3] as any) || 'Facial',
+            basePrice: Number(row[4]) || 0,
+            notes: String(row[9] || ''),
+            isActive: String(row[8]).toUpperCase() !== 'FALSE',
+          };
+        }
+        // Formato nuevo exacto de 5 columnas: Código Único, Categoría, Nombre del Procedimiento, Precio Base (USD), Observaciones
+        const code = String(row[0] || '').trim();
+        return {
+          id: code,
+          code: code,
+          category: (row[1] as any) || 'Facial',
+          name: String(row[2] || ''),
+          basePrice: Number(row[3]) || 0,
+          notes: String(row[4] || ''),
+          isActive: true,
+        };
+      });
 
     const financingPlans: FinancingPlan[] = rawPlans
       .filter((row: any[]) => row && row[0])

@@ -277,21 +277,30 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
           {/* Action Shortcuts */}
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => onOpenWhatsApp(patient)}
+              onClick={() => {
+                onClose();
+                onOpenWhatsApp(patient);
+              }}
               className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors cursor-pointer"
             >
               <MessageCircle className="w-4 h-4" />
               <span>Enviar WhatsApp</span>
             </button>
             <button
-              onClick={() => onOpenNewPayment(patient.id)}
+              onClick={() => {
+                onClose();
+                onOpenNewPayment(patient.id);
+              }}
               className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white shadow-xs transition-colors cursor-pointer"
             >
               <DollarSign className="w-4 h-4" />
               <span>Registrar Abono</span>
             </button>
             <button
-              onClick={() => onOpenNewRefund(patient.id)}
+              onClick={() => {
+                onClose();
+                onOpenNewRefund(patient.id);
+              }}
               className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
             >
               <Undo2 className="w-4 h-4" />

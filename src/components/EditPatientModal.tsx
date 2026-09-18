@@ -41,6 +41,10 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
   const [doctor, setDoctor] = useState('Dr. Jorge Apelencia');
   const [totalCost, setTotalCost] = useState<number | ''>('');
   const [totalPaid, setTotalPaid] = useState<number>(0);
+  const [originalSubtotal, setOriginalSubtotal] = useState<number | ''>('');
+  const [discountPercent, setDiscountPercent] = useState<number | ''>('');
+  const [couponCode, setCouponCode] = useState<string>('');
+  const [couponDiscount, setCouponDiscount] = useState<number | ''>('');
   const [status, setStatus] = useState<'pending' | 'paid' | 'overdue'>('pending');
   const [nextPaymentDate, setNextPaymentDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -57,6 +61,10 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
       setDoctor(patient.doctor || 'Dr. Jorge Apelencia');
       setTotalCost(patient.totalCost ?? '');
       setTotalPaid(patient.totalPaid ?? 0);
+      setOriginalSubtotal(patient.originalSubtotal ?? patient.totalCost ?? '');
+      setDiscountPercent(patient.discountPercent ?? '');
+      setCouponCode(patient.couponCode ?? '');
+      setCouponDiscount(patient.couponDiscount ?? '');
       setStatus(patient.status || 'pending');
       setNextPaymentDate(patient.nextPaymentDate || '');
       setNotes(patient.notes || '');
@@ -76,6 +84,12 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
       return;
     }
 
+    const numSubtotal = originalSubtotal === '' ? numericCost : Number(originalSubtotal);
+    const numDiscPct = Number(discountPercent) || 0;
+    const numDiscAmount = numDiscPct > 0 ? Math.round((numSubtotal * numDiscPct) / 100) : 0;
+    const numCpnDisc = Number(couponDiscount) || 0;
+    const numTotalDisc = numDiscAmount + numCpnDisc;
+
     const updatedPatient: Patient = {
       ...patient,
       fullName: fullName.trim(),
@@ -92,6 +106,12 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
       status: calculatedBalance === 0 ? 'paid' : status,
       nextPaymentDate: nextPaymentDate || undefined,
       notes: notes.trim() || undefined,
+      originalSubtotal: numSubtotal,
+      discountPercent: numDiscPct,
+      discountAmount: numDiscAmount,
+      couponCode: couponCode.trim() || undefined,
+      couponDiscount: numCpnDisc,
+      totalDiscount: numTotalDisc,
     };
 
     onSavePatient(updatedPatient);
@@ -99,7 +119,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80">
@@ -302,6 +322,106 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
               <DollarSign className="w-3.5 h-3.5 text-slate-400" />
               <span>Condiciones Financieras & Saldo</span>
             </h3>
+
+            {/* Ajuste de Beneficios & Descuentos */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 mb-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
+                  <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Beneficio / Descuento (%) & Cupón</span>
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  Aplica sobre el costo de la cirugía
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Subtotal Base ($)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Monto base"
+                    value={originalSubtotal}
+                    onChange={(e) => setOriginalSubtotal(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 font-medium text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-600">
+                      Descuento Directo (%)
+                    </label>
+                    <div className="flex space-x-1">
+                      {[10, 15, 20].map((p) => (
+                        <button
+                          type="button"
+                          key={p}
+                          onClick={() => {
+                            setDiscountPercent(p);
+                            const base = Number(originalSubtotal) || numericCost || 0;
+                            const dAmount = Math.round((base * p) / 100);
+                            const cAmount = Number(couponDiscount) || 0;
+                            const newCost = Math.max(0, base - (dAmount + cAmount));
+                            setTotalCost(newCost);
+                          }}
+                          className="text-[9px] px-1 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold border border-emerald-200 hover:bg-emerald-100 cursor-pointer"
+                        >
+                          {p}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="0"
+                      value={discountPercent}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : Number(e.target.value);
+                        setDiscountPercent(val);
+                        if (val !== '') {
+                          const base = Number(originalSubtotal) || numericCost || 0;
+                          const dAmount = Math.round((base * Number(val)) / 100);
+                          const cAmount = Number(couponDiscount) || 0;
+                          setTotalCost(Math.max(0, base - (dAmount + cAmount)));
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 pr-6 rounded-lg bg-white border border-slate-300 font-bold text-slate-800"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Cupón ($ Descuento)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Monto cupón"
+                    value={couponDiscount}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? '' : Number(e.target.value);
+                      setCouponDiscount(val);
+                      if (val !== '') {
+                        const base = Number(originalSubtotal) || numericCost || 0;
+                        const pVal = Number(discountPercent) || 0;
+                        const dAmount = Math.round((base * pVal) / 100);
+                        setTotalCost(Math.max(0, base - (dAmount + Number(val))));
+                      }
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 font-medium text-slate-800"
+                  />
+                </div>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
               <div>

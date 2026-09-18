@@ -46,7 +46,25 @@ export interface Patient {
   financingInstallmentsCount?: number;
   financingInstallmentAmount?: number;
   paymentSchedule?: ScheduledPayment[];
+
+  // Descuentos y Cupones Comerciales
+  originalSubtotal?: number; // Subtotal base antes de descuentos
+  discountPercent?: number; // % de descuento directo
+  discountAmount?: number; // $ descontado por porcentaje
+  couponCode?: string; // Código del cupón aplicado
+  couponDiscount?: number; // $ descontado por cupón
+  totalDiscount?: number; // Suma total de descuentos aplicados
 }
+
+export type PaymentMethod =
+  | 'Transferencia'
+  | 'Efectivo'
+  | 'Tarjeta de Débito'
+  | 'Tarjeta de Crédito'
+  | 'Zelle'
+  | 'Binance'
+  | 'Mercado Pago'
+  | 'Otro';
 
 export interface Payment {
   id: string;
@@ -54,7 +72,7 @@ export interface Payment {
   patientName: string;
   amount: number;
   date: string; // YYYY-MM-DD
-  paymentMethod: 'Transferencia' | 'Efectivo' | 'Tarjeta de Débito' | 'Tarjeta de Crédito' | 'Zelle' | 'Mercado Pago' | 'Otro';
+  paymentMethod: PaymentMethod;
   reference: string; // Nro de comprobante / referencia
   notes?: string;
   registeredBy?: string; // Nombre de la secretaria / usuario
@@ -68,11 +86,15 @@ export interface Refund {
   amount: number;
   date: string; // YYYY-MM-DD
   reason: string; // Motivo del reintegro
-  refundMethod: 'Transferencia' | 'Efectivo' | 'Otro';
+  refundMethod: 'Transferencia' | 'Efectivo' | 'Zelle' | 'Binance' | 'Mercado Pago' | 'Otro';
   reference: string;
   notes?: string;
   registeredBy?: string;
   createdAt: string;
+  // Deducciones de reintegro (gastos médicos y gastos administrativos)
+  medicalExpensesAmount?: number;
+  adminFeePercent?: number;
+  adminFeeAmount?: number;
 }
 
 export interface GoogleSheetConfig {
@@ -146,9 +168,9 @@ export interface SurgicalProcedure {
   name: string;
   category: 'Facial' | 'Corporal' | 'Medicina Estética' | 'Capilar' | 'Otro';
   basePrice: number;
-  durationMinutes: number;
-  requiresOR: boolean; // Requiere Quirófano
-  doctorCommissionPercent: number;
+  durationMinutes?: number;
+  requiresOR?: boolean; // Requiere Quirófano (opcional)
+  doctorCommissionPercent?: number;
   isActive: boolean;
   notes?: string;
 }

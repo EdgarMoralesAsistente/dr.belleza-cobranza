@@ -28,6 +28,11 @@ export const NewRefundModal: React.FC<NewRefundModalProps> = ({
   const [notifyWhatsApp, setNotifyWhatsApp] = useState(true);
   const [autoDownloadPdf, setAutoDownloadPdf] = useState(true);
 
+  // Lógica de cálculo de reintegros con deducciones
+  const [medicalExpenses, setMedicalExpenses] = useState<number | ''>('');
+  const [adminFeePercent, setAdminFeePercent] = useState<number>(10);
+  const [showDeductions, setShowDeductions] = useState(true);
+
   // Filter patients by name, procedure, DNI, phone
   const filteredPatients = useMemo(() => {
     if (!searchTerm.trim()) return patients;
@@ -63,6 +68,25 @@ export const NewRefundModal: React.FC<NewRefundModalProps> = ({
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
 
+  const patientTotalPaid = selectedPatient ? selectedPatient.totalPaid : 0;
+  const medExpenses = Number(medicalExpenses) || 0;
+  const baseAfterMedical = Math.max(0, patientTotalPaid - medExpenses);
+  const adminFeeAmount = Math.round((baseAfterMedical * (Number(adminFeePercent) || 0)) / 100);
+  const netCalculatedRefund = Math.max(0, baseAfterMedical - adminFeeAmount);
+
+  const applyDeductionCalculation = () => {
+    setAmount(netCalculatedRefund);
+    const detailParts: string[] = [];
+    if (medExpenses > 0) {
+      detailParts.push(`Deducido consultas/exámenes: -$${medExpenses.toLocaleString()} USD`);
+    }
+    if (adminFeeAmount > 0) {
+      detailParts.push(`Gastos administrativos (${adminFeePercent}%): -$${adminFeeAmount.toLocaleString()} USD`);
+    }
+    const deductionNote = detailParts.length > 0 ? ` [${detailParts.join(' | ')}]` : '';
+    setReason(`Cancelación de cirugía${deductionNote}. Total previo abonado: $${patientTotalPaid.toLocaleString()} USD. Reintegro neto acordado: $${netCalculatedRefund.toLocaleString()} USD.`);
+  };
+
   const handleDownloadPDF = () => {
     if (!selectedPatient) {
       alert('Seleccione una paciente primero');
@@ -89,6 +113,9 @@ export const NewRefundModal: React.FC<NewRefundModalProps> = ({
       reference: reference.trim() || `REI-${Date.now().toString().slice(-6)}`,
       registeredBy: 'Secretaría Cobranzas',
       createdAt: new Date().toISOString(),
+      medicalExpensesAmount: medExpenses > 0 ? medExpenses : undefined,
+      adminFeePercent: adminFeePercent > 0 ? adminFeePercent : undefined,
+      adminFeeAmount: adminFeeAmount > 0 ? adminFeeAmount : undefined,
     };
 
     // Calculate projected totals after refund
@@ -138,6 +165,9 @@ export const NewRefundModal: React.FC<NewRefundModalProps> = ({
         refundMethod,
         reference: reference.trim(),
         registeredBy: 'Secretaría Cobranzas',
+        medicalExpensesAmount: medExpenses > 0 ? medExpenses : undefined,
+        adminFeePercent: adminFeePercent > 0 ? adminFeePercent : undefined,
+        adminFeeAmount: adminFeeAmount > 0 ? adminFeeAmount : undefined,
       },
       notifyWhatsApp
     );
@@ -146,7 +176,7 @@ export const NewRefundModal: React.FC<NewRefundModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="relative bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-rose-50/50">
@@ -243,6 +273,127 @@ export const NewRefundModal: React.FC<NewRefundModalProps> = ({
             </div>
           )}
 
+          {/* CALCULADORA ASISTIDA DE REINTEGROS (Deducciones Médicas & Retención Administrativa) */}
+          {selectedPatient && selectedPatient.totalPaid > 0 && (
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-1.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                    Cálculo Oficial de Reintegro con Deducciones
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDeductions(!showDeductions)}
+                  className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 underline cursor-pointer"
+                >
+                  {showDeductions ? 'Ocultar Asistente' : 'Mostrar Asistente'}
+                </button>
+              </div>
+
+              {showDeductions && (
+                <div className="space-y-3 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    {/* Deducción 1: Gastos médicos / Exámenes */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        1. Consultas Médicas / Exámenes Realizados ($)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="Ej. 150 (a descontar)"
+                        value={medicalExpenses}
+                        onChange={(e) => setMedicalExpenses(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-medium text-slate-800 placeholder:text-slate-400"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Pagos a clínicas/especialistas no reintegrables
+                      </p>
+                    </div>
+
+                    {/* Deducción 2: Gastos administrativos % */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-semibold text-slate-700">
+                          2. Gastos Administrativos (%)
+                        </label>
+                        <div className="flex items-center space-x-1">
+                          {[10, 15, 20].map((pct) => (
+                            <button
+                              type="button"
+                              key={pct}
+                              onClick={() => setAdminFeePercent(pct)}
+                              className={`text-[9px] px-1.5 py-0.5 rounded font-bold border transition-colors cursor-pointer ${
+                                adminFeePercent === pct
+                                  ? 'bg-rose-600 text-white border-rose-600'
+                                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                              }`}
+                            >
+                              {pct}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="10"
+                          value={adminFeePercent}
+                          onChange={(e) => setAdminFeePercent(Math.min(100, Math.max(0, Number(e.target.value))))}
+                          className="w-full px-2.5 py-1.5 pr-6 bg-white border border-slate-300 rounded-lg font-bold text-slate-800"
+                        />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                          %
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Retención estándar del 10% al 20%
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Resumen en vivo de la liquidación */}
+                  <div className="p-2.5 bg-rose-50/70 rounded-lg border border-rose-200 text-xs space-y-1">
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Total Abonado previo:</span>
+                      <span className="font-semibold text-slate-800">${patientTotalPaid.toLocaleString()} USD</span>
+                    </div>
+                    {medExpenses > 0 && (
+                      <div className="flex items-center justify-between text-rose-700">
+                        <span>(-) Consultas médicas / Exámenes:</span>
+                        <span className="font-semibold">-${medExpenses.toLocaleString()} USD</span>
+                      </div>
+                    )}
+                    {adminFeeAmount > 0 && (
+                      <div className="flex items-center justify-between text-rose-700">
+                        <span>(-) Gastos Administrativos ({adminFeePercent}%):</span>
+                        <span className="font-semibold">-${adminFeeAmount.toLocaleString()} USD</span>
+                      </div>
+                    )}
+                    <div className="pt-1 border-t border-rose-200 flex items-center justify-between">
+                      <span className="font-bold text-slate-800">Reintegro Neto Calculado:</span>
+                      <span className="font-black text-sm text-rose-700">
+                        ${netCalculatedRefund.toLocaleString()} USD
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={applyDeductionCalculation}
+                    className="w-full py-1.5 text-xs font-bold text-white bg-rose-700 hover:bg-rose-800 rounded-lg shadow-2xs transition-colors flex items-center justify-center space-x-1 cursor-pointer"
+                  >
+                    <span>Aplicar Este Monto y Detalle al Reintegro</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Monto y Fecha */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -299,10 +450,13 @@ export const NewRefundModal: React.FC<NewRefundModalProps> = ({
               <select
                 value={refundMethod}
                 onChange={(e) => setRefundMethod(e.target.value as any)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/20"
               >
                 <option value="Transferencia">Transferencia Bancaria</option>
                 <option value="Efectivo">Efectivo</option>
+                <option value="Zelle">Zelle / Dólares</option>
+                <option value="Binance">Binance (USDT / Cripto)</option>
+                <option value="Mercado Pago">Mercado Pago / Billetera Virtual</option>
                 <option value="Otro">Otro medio</option>
               </select>
             </div>

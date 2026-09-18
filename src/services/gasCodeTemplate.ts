@@ -58,8 +58,7 @@ var SCHEMA = {
     name: 'Procedimientos',
     aliases: ['procedimientos', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'catalogoquirurgico', 'procedures'],
     headers: [
-      'ID Procedimiento', 'Código', 'Nombre', 'Categoría', 'Precio Base ($)',
-      'Duración (min)', 'Requiere Quirófano', 'Comisión Doctor (%)', 'Activo'
+      'Código Único', 'Categoría', 'Nombre del Procedimiento', 'Precio Base (USD)', 'Observaciones'
     ]
   },
   PLANES: {
@@ -241,16 +240,16 @@ function sembrarDatosIniciales(ss) {
   var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
   if (procSheet && procSheet.getLastRow() <= 1) {
     var defaultProcs = [
-      ['PRC-001', 'QX-RINO', 'Rinoplastia Ultrasónica Estructural', 'Facial', 3200, 180, 'TRUE', 65, 'TRUE'],
-      ['PRC-002', 'QX-LIPO', 'Lipoescultura HD con Marcación', 'Corporal', 4500, 210, 'TRUE', 60, 'TRUE'],
-      ['PRC-003', 'QX-MAMO', 'Mamoplastia de Aumento con Implantes', 'Mamas', 3800, 120, 'TRUE', 60, 'TRUE'],
-      ['PRC-004', 'QX-BLEFARO', 'Blefaroplastia Superior e Inferior', 'Facial', 1800, 90, 'FALSE', 70, 'TRUE'],
-      ['PRC-005', 'QX-ABDOMINO', 'Abdominoplastia con Plicatura Muscular', 'Corporal', 4200, 240, 'TRUE', 55, 'TRUE'],
-      ['PRC-006', 'QX-MASTOPEXIA', 'Mastopexia con Elevación Tisular', 'Mamas', 4100, 180, 'TRUE', 60, 'TRUE'],
-      ['PRC-007', 'QX-BICHECTOMIA', 'Bichectomía Láser Ambulatoria', 'Facial', 950, 45, 'FALSE', 75, 'TRUE'],
-      ['PRC-008', 'QX-GLUTEOS', 'Gluteoplastia con Lipotransferencia', 'Corporal', 3900, 180, 'TRUE', 60, 'TRUE'],
-      ['PRC-009', 'QX-OTOPLASTIA', 'Otoplastia Bilateral Reconstructiva', 'Facial', 1600, 75, 'FALSE', 70, 'TRUE'],
-      ['PRC-010', 'NX-BOTOX', 'Aplicación de Toxina Botulínica (3 Zonas)', 'No Quirúrgico', 350, 30, 'FALSE', 80, 'TRUE']
+      ['QX-RINO', 'Facial', 'Rinoplastia Ultrasónica Estructural', 3200, 'Incluye valoración y revisiones'],
+      ['QX-LIPO', 'Corporal', 'Lipoescultura HD con Marcación', 4500, 'Incluye faja postquirúrgica'],
+      ['QX-MAMO', 'Corporal', 'Mamoplastia de Aumento con Implantes', 3800, 'Incluye prótesis microtexturadas'],
+      ['QX-BLEFARO', 'Facial', 'Blefaroplastia Superior e Inferior', 1800, 'Procedimiento ambulatorio'],
+      ['QX-ABDOMINO', 'Corporal', 'Abdominoplastia con Plicatura Muscular', 4200, 'Incluye faja y drenes'],
+      ['QX-MASTOPEXIA', 'Corporal', 'Mastopexia con Elevación Tisular', 4100, 'Reconstrucción mamaria'],
+      ['QX-BICHECTOMIA', 'Facial', 'Bichectomía Láser Ambulatoria', 950, 'Anestesia local'],
+      ['QX-GLUTEOS', 'Corporal', 'Gluteoplastia con Lipotransferencia', 3900, 'Incluye liposucción previa'],
+      ['QX-OTOPLASTIA', 'Facial', 'Otoplastia Bilateral Reconstructiva', 1600, 'Procedimiento ambulatorio'],
+      ['NX-BOTOX', 'Medicina Estética', 'Aplicación de Toxina Botulínica (3 Zonas)', 350, 'Incluye retoque a los 15 días']
     ];
     procSheet.getRange(2, 1, defaultProcs.length, defaultProcs[0].length).setValues(defaultProcs);
   }
@@ -549,16 +548,28 @@ function mapearEventoCRMDesdeFila(r) {
 }
 
 function mapearProcedimientoDesdeFila(r) {
+  // Retrocompatibilidad con 9 o 10 columnas
+  if (r.length >= 8 && typeof r[4] === 'number') {
+    return {
+      id: String(r[0]),
+      code: String(r[1] || r[0]),
+      name: String(r[2] || ''),
+      category: String(r[3] || 'Facial'),
+      basePrice: Number(r[4]) || 0,
+      notes: String(r[9] || ''),
+      isActive: String(r[8]).toLowerCase() !== 'false'
+    };
+  }
+  // Formato nuevo exacto: Código Único, Categoría, Nombre del Procedimiento, Precio Base (USD), Observaciones
+  var code = String(r[0] || '').trim();
   return {
-    id: String(r[0]),
-    code: String(r[1] || ''),
+    id: code,
+    code: code,
+    category: String(r[1] || 'Facial'),
     name: String(r[2] || ''),
-    category: String(r[3] || 'Facial'),
-    basePrice: Number(r[4]) || 0,
-    durationMinutes: Number(r[5]) || 60,
-    requiresOR: String(r[6]).toLowerCase() === 'true',
-    doctorCommissionPercent: Number(r[7]) || 50,
-    isActive: String(r[8]).toLowerCase() === 'true'
+    basePrice: Number(r[3]) || 0,
+    notes: String(r[4] || ''),
+    isActive: true
   };
 }
 
@@ -856,33 +867,37 @@ function guardarProcedimiento(ss, proc) {
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
     formatearEncabezado(sheet, SCHEMA.PROCEDIMIENTOS.headers.length);
+  } else if (sheet.getLastColumn() < SCHEMA.PROCEDIMIENTOS.headers.length) {
+    asegurarDimensionesHoja(sheet, 1, SCHEMA.PROCEDIMIENTOS.headers.length);
+    for (var h = sheet.getLastColumn(); h < SCHEMA.PROCEDIMIENTOS.headers.length; h++) {
+      sheet.getRange(1, h + 1).setValue(SCHEMA.PROCEDIMIENTOS.headers[h]);
+    }
+    formatearEncabezado(sheet, SCHEMA.PROCEDIMIENTOS.headers.length);
   }
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
+  var targetCode = String(proc.code || proc.id || '').trim().toUpperCase();
+  var targetName = String(proc.name || '').trim().toLowerCase();
+
   for (var i = 1; i < values.length; i++) {
-    var rowId = String(values[i][0] || '');
-    var rowCode = String(values[i][1] || '').toUpperCase();
+    var rowCode = String(values[i][0] || '').trim().toUpperCase();
     var rowName = String(values[i][2] || '').trim().toLowerCase();
     if (
-      (proc.id && rowId === String(proc.id)) ||
-      (proc.code && rowCode && rowCode === String(proc.code).toUpperCase()) ||
-      (proc.name && rowName && rowName === String(proc.name).trim().toLowerCase())
+      (targetCode && rowCode === targetCode) ||
+      (targetName && rowName === targetName)
     ) {
       rowIndex = i + 1;
       break;
     }
   }
 
+  // Schema: Código Único, Categoría, Nombre del Procedimiento, Precio Base (USD), Observaciones
   var rowData = [
-    proc.id || ('PRC-' + String(new Date().getTime()).slice(-4)),
-    proc.code || '',
-    proc.name || '',
+    proc.code || proc.id || ('QX-' + Math.floor(100 + Math.random() * 900)),
     proc.category || 'Facial',
+    proc.name || '',
     Number(proc.basePrice) || 0,
-    Number(proc.durationMinutes) || 60,
-    proc.requiresOR !== false ? 'TRUE' : 'FALSE',
-    Number(proc.doctorCommissionPercent) || 50,
-    proc.isActive !== false ? 'TRUE' : 'FALSE'
+    proc.notes || ''
   ];
 
   if (rowIndex > 1) {
@@ -897,8 +912,9 @@ function guardarProcedimiento(ss, proc) {
 function borrarProcedimiento(ss, procId) {
   var sheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
   var values = sheet.getDataRange().getValues();
+  var target = String(procId).trim().toUpperCase();
   for (var i = 1; i < values.length; i++) {
-    if (String(values[i][0]) === String(procId)) {
+    if (String(values[i][0]).trim().toUpperCase() === target || (values[i][1] && String(values[i][1]).trim().toUpperCase() === target)) {
       sheet.deleteRow(i + 1);
       return { status: 'ok', message: 'Procedimiento eliminado' };
     }
@@ -915,15 +931,11 @@ function guardarTodosProcedimientos(ss, proceduresList) {
   if (Array.isArray(proceduresList) && proceduresList.length > 0) {
     var rows = proceduresList.map(function(pr) {
       return [
-        pr.id,
-        pr.code || '',
-        pr.name || '',
+        pr.code || pr.id || '',
         pr.category || 'Facial',
+        pr.name || '',
         Number(pr.basePrice) || 0,
-        Number(pr.durationMinutes) || 60,
-        pr.requiresOR !== false ? 'TRUE' : 'FALSE',
-        Number(pr.doctorCommissionPercent) || 50,
-        pr.isActive !== false ? 'TRUE' : 'FALSE'
+        pr.notes || ''
       ];
     });
     asegurarDimensionesHoja(procSheet, 1 + rows.length, SCHEMA.PROCEDIMIENTOS.headers.length);
@@ -1056,15 +1068,11 @@ function sincronizarMasivo(ss, data) {
     formatearEncabezado(procSheet, SCHEMA.PROCEDIMIENTOS.headers.length);
     var procRows = procsList.map(function(pr) {
       return [
-        pr.id,
-        pr.code || '',
-        pr.name || '',
+        pr.code || pr.id || '',
         pr.category || 'Facial',
+        pr.name || '',
         Number(pr.basePrice) || 0,
-        Number(pr.durationMinutes) || 60,
-        pr.requiresOR !== false ? 'TRUE' : 'FALSE',
-        Number(pr.doctorCommissionPercent) || 50,
-        pr.isActive !== false ? 'TRUE' : 'FALSE'
+        pr.notes || ''
       ];
     });
     asegurarDimensionesHoja(procSheet, 1 + procRows.length, SCHEMA.PROCEDIMIENTOS.headers.length);

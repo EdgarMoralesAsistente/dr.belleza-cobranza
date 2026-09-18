@@ -96,9 +96,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
   const [procName, setProcName] = useState('');
   const [procCategory, setProcCategory] = useState<SurgicalProcedure['category']>('Facial');
   const [procPrice, setProcPrice] = useState<number | ''>('');
-  const [procDuration, setProcDuration] = useState<number | ''>(60);
-  const [procRequiresOR, setProcRequiresOR] = useState(true);
-  const [procCommission, setProcCommission] = useState<number | ''>(65);
   const [procNotes, setProcNotes] = useState('');
 
   const openNewProcedureModal = () => {
@@ -107,9 +104,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
     setProcName('');
     setProcCategory('Facial');
     setProcPrice('');
-    setProcDuration(90);
-    setProcRequiresOR(true);
-    setProcCommission(65);
     setProcNotes('');
     setIsProcedureModalOpen(true);
   };
@@ -120,9 +114,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
     setProcName(proc.name);
     setProcCategory(proc.category);
     setProcPrice(proc.basePrice);
-    setProcDuration(proc.durationMinutes);
-    setProcRequiresOR(proc.requiresOR);
-    setProcCommission(proc.doctorCommissionPercent);
     setProcNotes(proc.notes || '');
     setIsProcedureModalOpen(true);
   };
@@ -141,9 +132,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
         name: procName.trim(),
         category: procCategory,
         basePrice: Number(procPrice),
-        durationMinutes: Number(procDuration) || editingProcedure.durationMinutes || 60,
-        requiresOR: procRequiresOR,
-        doctorCommissionPercent: Number(procCommission) || editingProcedure.doctorCommissionPercent || 60,
         notes: procNotes.trim(),
       };
       const updated = procedures.map((p) =>
@@ -158,9 +146,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
         name: procName.trim(),
         category: procCategory,
         basePrice: Number(procPrice),
-        durationMinutes: Number(procDuration) || 60,
-        requiresOR: procRequiresOR,
-        doctorCommissionPercent: Number(procCommission) || 60,
         isActive: true,
         notes: procNotes.trim(),
       };
@@ -688,6 +673,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                     <th className="px-4 py-3">Procedimiento</th>
                     <th className="px-4 py-3">Categoría</th>
                     <th className="px-4 py-3">Precio Base (USD)</th>
+                    <th className="px-4 py-3">Observaciones</th>
                     <th className="px-4 py-3 text-center">Estado</th>
                     <th className="px-4 py-3 text-right">Acciones</th>
                   </tr>
@@ -695,7 +681,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filteredProcedures.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                         No se encontraron procedimientos con los filtros actuales.
                       </td>
                     </tr>
@@ -714,11 +700,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                         </td>
                         <td className="px-4 py-3">
                           <div className="font-bold text-slate-900">{proc.name}</div>
-                          {proc.notes && (
-                            <div className="text-[11px] text-slate-400 truncate max-w-xs">
-                              {proc.notes}
-                            </div>
-                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span
@@ -735,6 +716,15 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({
                         </td>
                         <td className="px-4 py-3 font-bold text-slate-900">
                           ${proc.basePrice.toLocaleString()} USD
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 max-w-xs">
+                          {proc.notes ? (
+                            <span className="text-[11px] truncate block" title={proc.notes}>
+                              {proc.notes}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-300 italic">Sin observaciones</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <button

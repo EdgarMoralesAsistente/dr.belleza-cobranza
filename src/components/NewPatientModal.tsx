@@ -24,7 +24,7 @@ import {
   CheckCircle2,
   RotateCcw,
 } from 'lucide-react';
-import { Patient, Payment, SurgicalProcedure, DiscountCoupon, FinancingPlan, ScheduledPayment, AppBrandingConfig } from '../types';
+import { Patient, Payment, PaymentMethod, SurgicalProcedure, DiscountCoupon, FinancingPlan, ScheduledPayment, AppBrandingConfig } from '../types';
 import { INITIAL_PROCEDURES, INITIAL_FINANCING_PLANS } from '../services/storage';
 
 const formatDisplayDate = (dateStr: string) => {
@@ -131,6 +131,9 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
   const [procSearch, setProcSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
+  // Commercial discount state (% directo sobre el subtotal)
+  const [discountPercent, setDiscountPercent] = useState<number | ''>('');
+
   // Coupon state
   const [selectedCouponCode, setSelectedCouponCode] = useState<string>('');
 
@@ -148,9 +151,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     }
     return '';
   });
-  const [initialPaymentMethod, setInitialPaymentMethod] = useState<
-    'Transferencia' | 'Efectivo' | 'Tarjeta de Débito' | 'Tarjeta de Crédito'
-  >('Transferencia');
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState<PaymentMethod>('Transferencia');
   const [initialPaymentRef, setInitialPaymentRef] = useState('');
   const [firstPaymentDate, setFirstPaymentDate] = useState<string>(() => {
     return getDefaultFirstDate('Quincenal');
@@ -185,20 +186,61 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     return sum;
   }, [selectedProcedures, includeCustomProcedure, customProcedurePrice]);
 
-  // Apply discount if coupon selected
+  // Active coupon object
   const activeCoupon = useMemo(() => {
     if (!availableCoupons || !selectedCouponCode) return null;
     return availableCoupons.find((c) => c.code === selectedCouponCode && c.isActive) || null;
   }, [availableCoupons, selectedCouponCode]);
 
-  const discountAmount = useMemo(() => {
+  // Direct percentage discount amount (descuento sobre el total de la cirugía)
+  const percentDiscountAmount = useMemo(() => {
+    const pct = Number(discountPercent) || 0;
+    if (pct <= 0) return 0;
+    return Math.round((calculatedSum * pct) / 100);
+  }, [calculatedSum, discountPercent]);
+
+  // Coupon discount amount (combinable con el porcentaje)
+  const couponDiscountAmount = useMemo(() => {
     if (!activeCoupon) return 0;
     if (activeCoupon.discountType === 'percentage') {
       return Math.round((calculatedSum * activeCoupon.discountValue) / 100);
     } else {
-      return Math.min(calculatedSum, activeCoupon.discountValue);
+      const remainingBase = Math.max(0, calculatedSum - percentDiscountAmount);
+      return Math.min(remainingBase, activeCoupon.discountValue);
     }
-  }, [activeCoupon, calculatedSum]);
+  }, [activeCoupon, calculatedSum, percentDiscountAmount]);
+
+  // Combined total discount (descuento % + cupón simultáneamente)
+  const combinedTotalDiscount = useMemo(() => {
+    return Math.min(calculatedSum, percentDiscountAmount + couponDiscountAmount);
+  }, [calculatedSum, percentDiscountAmount, couponDiscountAmount]);
+
+  // Net calculated total after all discounts
+  const netCalculatedTotal = useMemo(() => {
+    return Math.max(0, calculatedSum - combinedTotalDiscount);
+  }, [calculatedSum, combinedTotalDiscount]);
+
+  // Unified helper to recompute and set totalCost
+  const computeAndSetTotalCost = (
+    baseSum: number,
+    pct: number | '',
+    couponCode: string
+  ) => {
+    const pVal = Number(pct) || 0;
+    const pDisc = pVal > 0 ? Math.round((baseSum * pVal) / 100) : 0;
+    const cpn = availableCoupons?.find((c) => c.code === couponCode && c.isActive);
+    let cDisc = 0;
+    if (cpn) {
+      if (cpn.discountType === 'percentage') {
+        cDisc = Math.round((baseSum * cpn.discountValue) / 100);
+      } else {
+        const remaining = Math.max(0, baseSum - pDisc);
+        cDisc = Math.min(remaining, cpn.discountValue);
+      }
+    }
+    const finalAmount = Math.max(0, baseSum - (pDisc + cDisc));
+    setTotalCost(finalAmount);
+  };
 
   // Helper to toggle procedure checkbox and auto-update totalCost
   const handleToggleProcedure = (procId: string) => {
@@ -218,16 +260,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
       newSum += Number(customProcedurePrice);
     }
 
-    // Apply coupon if exists
-    let disc = 0;
-    if (activeCoupon) {
-      if (activeCoupon.discountType === 'percentage') {
-        disc = Math.round((newSum * activeCoupon.discountValue) / 100);
-      } else {
-        disc = Math.min(newSum, activeCoupon.discountValue);
-      }
-    }
-    setTotalCost(Math.max(0, newSum - disc));
+    computeAndSetTotalCost(newSum, discountPercent, selectedCouponCode);
   };
 
   // When custom procedure or price changes, update totalCost
@@ -239,15 +272,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     if (includeCustomProcedure && Number(num) > 0) {
       sum += Number(num);
     }
-    let disc = 0;
-    if (activeCoupon) {
-      if (activeCoupon.discountType === 'percentage') {
-        disc = Math.round((sum * activeCoupon.discountValue) / 100);
-      } else {
-        disc = Math.min(sum, activeCoupon.discountValue);
-      }
-    }
-    setTotalCost(Math.max(0, sum - disc));
+    computeAndSetTotalCost(sum, discountPercent, selectedCouponCode);
   };
 
   // Toggle custom procedure checkbox
@@ -257,30 +282,19 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     if (checked && Number(customProcedurePrice) > 0) {
       sum += Number(customProcedurePrice);
     }
-    let disc = 0;
-    if (activeCoupon) {
-      if (activeCoupon.discountType === 'percentage') {
-        disc = Math.round((sum * activeCoupon.discountValue) / 100);
-      } else {
-        disc = Math.min(sum, activeCoupon.discountValue);
-      }
-    }
-    setTotalCost(Math.max(0, sum - disc));
+    computeAndSetTotalCost(sum, discountPercent, selectedCouponCode);
+  };
+
+  // Handle direct discount percentage change
+  const handleDiscountPercentChange = (val: number | '') => {
+    setDiscountPercent(val);
+    computeAndSetTotalCost(calculatedSum, val, selectedCouponCode);
   };
 
   // Handle coupon change
   const handleCouponChange = (couponCode: string) => {
     setSelectedCouponCode(couponCode);
-    const foundCoupon = availableCoupons?.find((c) => c.code === couponCode && c.isActive);
-    let disc = 0;
-    if (foundCoupon) {
-      if (foundCoupon.discountType === 'percentage') {
-        disc = Math.round((calculatedSum * foundCoupon.discountValue) / 100);
-      } else {
-        disc = Math.min(calculatedSum, foundCoupon.discountValue);
-      }
-    }
-    setTotalCost(Math.max(0, calculatedSum - disc));
+    computeAndSetTotalCost(calculatedSum, discountPercent, couponCode);
   };
 
   // Dynamic financing calculations
@@ -491,7 +505,20 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
       registrationDate: new Date().toISOString().split('T')[0],
       nextPaymentDate: calculatedFirstDueDate,
       status: balance <= 0 ? 'paid' : 'pending',
-      notes: notes.trim(),
+      notes: [
+        notes.trim(),
+        combinedTotalDiscount > 0
+          ? `Beneficio/Descuento: ${discountPercent ? `${discountPercent}% comercial (-$${percentDiscountAmount})` : ''} ${selectedCouponCode ? `+ Cupón ${selectedCouponCode} (-$${couponDiscountAmount})` : ''}. Total ahorrado: -$${combinedTotalDiscount} USD sobre subtotal original de $${calculatedSum} USD.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' • '),
+      originalSubtotal: calculatedSum,
+      discountPercent: Number(discountPercent) || 0,
+      discountAmount: percentDiscountAmount,
+      couponCode: selectedCouponCode || undefined,
+      couponDiscount: couponDiscountAmount,
+      totalDiscount: combinedTotalDiscount,
       financingPlanId: selectedFinancingPlan?.id,
       financingPlanName: selectedFinancingPlan?.name,
       financingMonths: selectedFinancingPlan?.months,
@@ -873,56 +900,143 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  let disc = 0;
-                  if (activeCoupon) {
-                    if (activeCoupon.discountType === 'percentage') {
-                      disc = Math.round((calculatedSum * activeCoupon.discountValue) / 100);
-                    } else {
-                      disc = Math.min(calculatedSum, activeCoupon.discountValue);
-                    }
-                  }
-                  setTotalCost(Math.max(0, calculatedSum - disc));
+                  computeAndSetTotalCost(calculatedSum, discountPercent, selectedCouponCode);
                 }}
                 className="shrink-0 text-[11px] font-semibold text-emerald-800 bg-white hover:bg-emerald-100 border border-emerald-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                title="Sincronizar el presupuesto con la suma de las cirugías marcadas"
+                title="Sincronizar el presupuesto con la suma de las cirugías y descuentos"
               >
                 Sincronizar al Presupuesto
               </button>
             </div>
           </div>
 
-          {/* Cupón de Descuento (Opcional) */}
-          {availableCoupons && availableCoupons.filter((c) => c.isActive).length > 0 && (
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          {/* BENEFICIOS COMERCIALES & CUPONES (Simultáneos y Combinables) */}
+          <div className="bg-gradient-to-r from-emerald-50/60 via-slate-50 to-emerald-50/40 p-4 rounded-xl border border-emerald-200/80 space-y-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <Tag className="w-3.5 h-3.5 text-slate-500" />
-                <span className="text-xs font-semibold text-slate-700">
-                  Bono o Cupón de Descuento (Opcional):
+                <Tag className="w-4 h-4 text-emerald-600" />
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  Beneficios, Descuentos & Cupones (Combinables)
                 </span>
               </div>
-              <div className="flex items-center space-x-2">
+              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 border border-emerald-300 px-2 py-0.5 rounded-full">
+                Permite % + Cupón a la vez
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* 1. Porcentaje de Descuento sobre Cirugía */}
+              <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700 flex items-center space-x-1">
+                    <Percent className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Descuento Comercial (%)</span>
+                  </label>
+                  {percentDiscountAmount > 0 && (
+                    <span className="text-xs font-bold text-emerald-700">
+                      -${percentDiscountAmount.toLocaleString('es-AR')} USD
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-1.5">
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      placeholder="0%"
+                      value={discountPercent}
+                      onChange={(e) =>
+                        handleDiscountPercentChange(
+                          e.target.value === '' ? '' : Math.min(100, Math.max(0, Number(e.target.value)))
+                        )
+                      }
+                      className="w-full px-2.5 py-1.5 pr-6 text-xs font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-[#25D366]"
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                      %
+                    </span>
+                  </div>
+                  {/* Botones rápidos de descuento */}
+                  <div className="flex items-center space-x-1">
+                    {[0, 5, 10, 15, 20].map((pct) => (
+                      <button
+                        type="button"
+                        key={pct}
+                        onClick={() => handleDiscountPercentChange(pct === 0 ? '' : pct)}
+                        className={`text-[10px] px-1.5 py-1 rounded font-bold border transition-colors cursor-pointer ${
+                          (pct === 0 && (discountPercent === '' || discountPercent === 0)) ||
+                          discountPercent === pct
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Cupón o Bono Promocional */}
+              <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700 flex items-center space-x-1">
+                    <Tag className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Bono o Cupón Promocional</span>
+                  </label>
+                  {couponDiscountAmount > 0 && (
+                    <span className="text-xs font-bold text-blue-700">
+                      -${couponDiscountAmount.toLocaleString('es-AR')} USD
+                    </span>
+                  )}
+                </div>
+
                 <select
                   value={selectedCouponCode}
                   onChange={(e) => handleCouponChange(e.target.value)}
-                  className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1 font-medium text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-[#25D366] cursor-pointer"
+                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 font-medium text-slate-800 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-[#25D366] cursor-pointer"
                 >
                   <option value="">Sin cupón aplicado</option>
                   {availableCoupons
-                    .filter((c) => c.isActive)
+                    ?.filter((c) => c.isActive)
                     .map((c) => (
                       <option key={c.id} value={c.code}>
-                        {c.code} - {c.discountType === 'percentage' ? `${c.discountValue}% off` : `$${c.discountValue} off`} ({c.description})
+                        {c.code} - {c.discountType === 'percentage' ? `${c.discountValue}% off` : `$${c.discountValue} USD off`} ({c.description})
                       </option>
                     ))}
                 </select>
-                {discountAmount > 0 && (
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
-                    -${discountAmount.toLocaleString('es-AR')}
-                  </span>
-                )}
               </div>
             </div>
-          )}
+
+            {/* Resumen de Liquidación de Descuentos Combinados */}
+            {combinedTotalDiscount > 0 && (
+              <div className="p-2.5 bg-emerald-100/60 rounded-lg border border-emerald-300 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center space-x-2 text-emerald-900 font-medium">
+                  <Check className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>
+                    Subtotal: <strong>${calculatedSum.toLocaleString('es-AR')}</strong>
+                    {percentDiscountAmount > 0 && (
+                      <> • Descuento {discountPercent}%: <strong className="text-emerald-800">-${percentDiscountAmount.toLocaleString('es-AR')}</strong></>
+                    )}
+                    {couponDiscountAmount > 0 && (
+                      <> • Cupón ({selectedCouponCode}): <strong className="text-blue-800">-${couponDiscountAmount.toLocaleString('es-AR')}</strong></>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-emerald-900 bg-white px-2 py-0.5 rounded border border-emerald-300">
+                    Ahorro Total: -${combinedTotalDiscount.toLocaleString('es-AR')} USD
+                  </span>
+                  <span className="text-xs font-black text-slate-900 bg-emerald-200 px-2 py-0.5 rounded border border-emerald-400">
+                    Neto: ${netCalculatedTotal.toLocaleString('es-AR')} USD
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* 1. TIPO DE FINANCIAMIENTO ELEGIDO (Ahora antes del Plan Económico para calcular el abono inicial según el plan) */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
@@ -1123,13 +1237,17 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                   </label>
                   <select
                     value={initialPaymentMethod}
-                    onChange={(e) => setInitialPaymentMethod(e.target.value as any)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg"
+                    onChange={(e) => setInitialPaymentMethod(e.target.value as PaymentMethod)}
+                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-[#25D366]"
                   >
                     <option value="Transferencia">Transferencia Bancaria</option>
                     <option value="Efectivo">Efectivo en Consultorio</option>
                     <option value="Tarjeta de Débito">Tarjeta de Débito</option>
                     <option value="Tarjeta de Crédito">Tarjeta de Crédito</option>
+                    <option value="Zelle">Zelle / Dólares</option>
+                    <option value="Binance">Binance (USDT / Cripto)</option>
+                    <option value="Mercado Pago">Mercado Pago / Billetera Virtual</option>
+                    <option value="Otro">Otro medio de pago</option>
                   </select>
                 </div>
 
@@ -1208,12 +1326,15 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                 <span className="text-[10px] text-slate-400 block truncate">({selectedProcedures.length} proc.)</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 block font-medium">2. Descuento cupón:</span>
-                <span className={`font-bold ${activeCoupon ? 'text-emerald-700' : 'text-slate-400'}`}>
-                  {activeCoupon ? `-$${discountAmount.toLocaleString('es-AR')} USD` : '$0 USD'}
+                <span className="text-[10px] text-slate-500 block font-medium">2. Descuentos y Cupón:</span>
+                <span className={`font-bold ${combinedTotalDiscount > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                  {combinedTotalDiscount > 0 ? `-$${combinedTotalDiscount.toLocaleString('es-AR')} USD` : '$0 USD'}
                 </span>
-                {activeCoupon && (
-                  <span className="text-[10px] text-emerald-600 block truncate">({activeCoupon.code})</span>
+                {combinedTotalDiscount > 0 && (
+                  <span className="text-[10px] text-emerald-600 block truncate">
+                    {Number(discountPercent) > 0 ? `${discountPercent}% dto.` : ''}
+                    {activeCoupon ? ` + ${activeCoupon.code}` : ''}
+                  </span>
                 )}
               </div>
               <div>
