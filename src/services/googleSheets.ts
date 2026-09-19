@@ -245,10 +245,15 @@ const USER_HEADERS = [
 ];
 
 const PROCEDURE_HEADERS = [
-  'Código Único',
-  'Categoría',
+  'ID Procedimiento',
+  'Código',
   'Nombre del Procedimiento',
-  'Precio Base (USD)',
+  'Categoría',
+  'Precio Base ($)',
+  'Duración (min)',
+  'Requiere Quirófano',
+  '% Comisión Médico',
+  'Estado',
   'Observaciones',
 ];
 
@@ -361,7 +366,7 @@ export async function createDrBellezaSpreadsheet(accessToken: string): Promise<{
             values: [USER_HEADERS],
           },
           {
-            range: `'${SHEET_NAMES.PROCEDURES}'!A1:I1`,
+            range: `'${SHEET_NAMES.PROCEDURES}'!A1:J1`,
             values: [PROCEDURE_HEADERS],
           },
           {
@@ -457,10 +462,15 @@ function userToRow(u: SystemUser): (string | number)[] {
 
 export function procedureToRow(proc: SurgicalProcedure): (string | number)[] {
   return [
+    proc.id || ('PRC-' + (proc.code || Math.floor(1000 + Math.random() * 9000))),
     proc.code || proc.id || '',
-    proc.category || 'Facial',
     proc.name || '',
-    proc.basePrice || 0,
+    proc.category || 'Facial',
+    Number(proc.basePrice) || 0,
+    Number(proc.durationMinutes) || 60,
+    proc.requiresOR !== false ? 'SI' : 'NO',
+    Number(proc.doctorCommissionPercent) || 65,
+    proc.isActive !== false ? 'Activo' : 'Inactivo',
     proc.notes || '',
   ];
 }
@@ -732,26 +742,37 @@ export async function fetchAllFromGoogleSheet(
     const procedures: SurgicalProcedure[] = rawProcedures
       .filter((row: any[]) => row && row[0])
       .map((row: any[]) => {
-        // Soporte retrocompatible si la hoja tenía el formato antiguo de 9 o 10 columnas
-        if (row.length >= 8 && typeof row[4] === 'number') {
+        // Formato canónico de 10 columnas
+        if (row.length >= 6) {
+          const rawActive = String(row[8] || '').toLowerCase().trim();
+          const isActive = rawActive !== 'false' && rawActive !== 'inactivo' && rawActive !== 'no' && rawActive !== '0';
+          const rawOR = String(row[6] || '').toLowerCase().trim();
+          const requiresOR = rawOR === 'si' || rawOR === 'true' || rawOR === 'sí' || rawOR === '1';
+
           return {
-            id: String(row[0]),
-            code: String(row[1] || row[0]),
-            name: String(row[2] || ''),
+            id: String(row[0]).trim(),
+            code: String(row[1] || row[0]).trim(),
+            name: String(row[2] || '').trim(),
             category: (row[3] as any) || 'Facial',
-            basePrice: Number(row[4]) || 0,
-            notes: String(row[9] || ''),
-            isActive: String(row[8]).toUpperCase() !== 'FALSE',
+            basePrice: parseFloat(String(row[4]).replace(/[^0-9.-]/g, '')) || 0,
+            durationMinutes: parseInt(row[5]) || 60,
+            requiresOR: requiresOR,
+            doctorCommissionPercent: parseFloat(String(row[7]).replace(/[^0-9.-]/g, '')) || 65,
+            isActive: isActive,
+            notes: String(row[9] || '').trim(),
           };
         }
-        // Formato nuevo exacto de 5 columnas: Código Único, Categoría, Nombre del Procedimiento, Precio Base (USD), Observaciones
+        // Formato legado de 5 columnas
         const code = String(row[0] || '').trim();
         return {
           id: code,
           code: code,
           category: (row[1] as any) || 'Facial',
           name: String(row[2] || ''),
-          basePrice: Number(row[3]) || 0,
+          basePrice: parseFloat(String(row[3]).replace(/[^0-9.-]/g, '')) || 0,
+          durationMinutes: 60,
+          requiresOR: false,
+          doctorCommissionPercent: 65,
           notes: String(row[4] || ''),
           isActive: true,
         };
@@ -1127,7 +1148,7 @@ export async function appendProcedureToGoogleSheet(
   );
   const row = procedureToRow(proc);
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A:I:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A:J:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     {
       method: 'POST',
       headers: {
@@ -1187,7 +1208,7 @@ export async function updateProcedureInGoogleSheet(
     if (targetRowIndex > 1) {
       const row = procedureToRow(proc);
       await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A${targetRowIndex}:I${targetRowIndex}?valueInputOption=USER_ENTERED`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A${targetRowIndex}:J${targetRowIndex}?valueInputOption=USER_ENTERED`,
         {
           method: 'PUT',
           headers: {
@@ -1236,7 +1257,7 @@ export async function deleteProcedureFromGoogleSheet(
       if (rows[i] && String(rows[i][0]) === String(procedureId)) {
         const rowIdx = i + 1;
         await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A${rowIdx}:I${rowIdx}:clear`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A${rowIdx}:J${rowIdx}:clear`,
           {
             method: 'POST',
             headers: {

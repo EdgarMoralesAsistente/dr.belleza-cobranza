@@ -1,11 +1,13 @@
 /**
  * Plantilla de código para Google Apps Script (Code.gs)
- * Lista para copiar y pegar directamente desde la interfaz de la Web App
+ * Versión 3.5.0 - Catálogo Quirúrgico & Cobranza Unificada
+ * Lista para copiar y pegar directamente en Extensiones > Apps Script
  */
 export const CODE_GS_SOURCE = `/**
  * =========================================================================
  * DR. BELLEZA - SISTEMA DE COBRANZA & GESTIÓN MÉDICA
  * SCRIPT DE BASE DE DATOS PARA GOOGLE APPS SCRIPT (Code.gs)
+ * VERSIÓN: 3.5.0 - CATÁLOGO QUIRÚRGICO UNIFICADO
  * =========================================================================
  */
 
@@ -56,9 +58,14 @@ var SCHEMA = {
   },
   PROCEDIMIENTOS: {
     name: 'Procedimientos',
-    aliases: ['procedimientos', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'catalogoquirurgico', 'procedures'],
+    aliases: [
+      'procedimientos', 'procedimiento', 'cirugias', 'cirugia',
+      'catalogo', 'catalogo_quirurgico', 'catalogo quirurgico', 'procedures', 'procedure'
+    ],
     headers: [
-      'Código Único', 'Categoría', 'Nombre del Procedimiento', 'Precio Base (USD)', 'Observaciones'
+      'ID Procedimiento', 'Código', 'Nombre del Procedimiento', 'Categoría',
+      'Precio Base ($)', 'Duración (min)', 'Requiere Quirófano',
+      '% Comisión Médico', 'Estado', 'Observaciones'
     ]
   },
   PLANES: {
@@ -76,10 +83,14 @@ function normalizarTexto(txt) {
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[\s_-]+/g, '');
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[\\s_-]+/g, '');
 }
 
+/**
+ * Busca una hoja por su definición o alias.
+ * Si encuentra 'Procedimiento' (singular) y no existe 'Procedimientos', la renombra automáticamente.
+ */
 function buscarHoja(ss, tableDef) {
   if (!tableDef) return null;
   var exactSheet = ss.getSheetByName(tableDef.name);
@@ -91,11 +102,15 @@ function buscarHoja(ss, tableDef) {
 
   for (var i = 0; i < sheets.length; i++) {
     var sheetNorm = normalizarTexto(sheets[i].getName());
-    if (sheetNorm === targetNorm) {
-      return sheets[i];
-    }
+    if (sheetNorm === targetNorm) return sheets[i];
     for (var j = 0; j < aliasesNorm.length; j++) {
       if (sheetNorm === aliasesNorm[j]) {
+        // Auto-renombrar si es la hoja de procedimientos en singular
+        if (tableDef.name === 'Procedimientos' && !ss.getSheetByName('Procedimientos')) {
+          try {
+            sheets[i].setName('Procedimientos');
+          } catch (e) {}
+        }
         return sheets[i];
       }
     }
@@ -103,104 +118,14 @@ function buscarHoja(ss, tableDef) {
   return null;
 }
 
-/**
- * Elimina automáticamente la pestaña duplicada "Procedimiento" (Singular)
- * conservando exclusivamente la hoja oficial "Procedimientos" (Plural).
- * Si la hoja singular contiene datos y la plural está vacía, migra los registros.
- */
-function depurarPestanaProcedimiento(ss) {
-  try {
-    var allSheets = ss.getSheets();
-    var pluralSheet = null;
-    var singularSheetsToDelete = [];
-
-    for (var i = 0; i < allSheets.length; i++) {
-      var current = allSheets[i];
-      var sName = current.getName().trim();
-      var sNorm = normalizarTexto(sName);
-      if (sName === 'Procedimientos' || sNorm === 'procedimientos') {
-        if (!pluralSheet) {
-          pluralSheet = current;
-          if (current.getName() !== 'Procedimientos') {
-            current.setName('Procedimientos');
-          }
-        }
-      } else if (sName === 'Procedimiento' || sNorm === 'procedimiento') {
-        singularSheetsToDelete.push(current);
-      }
-    }
-
-    if (!pluralSheet && singularSheetsToDelete.length > 0) {
-      pluralSheet = singularSheetsToDelete.shift();
-      pluralSheet.setName('Procedimientos');
-    }
-
-    if (pluralSheet) {
-      for (var k = 0; k < singularSheetsToDelete.length; k++) {
-        var sing = singularSheetsToDelete[k];
-        try {
-          var lastRowSing = sing.getLastRow();
-          var lastRowPlur = pluralSheet.getLastRow();
-          if (lastRowSing > 1 && lastRowPlur <= 1) {
-            var numCols = Math.min(sing.getLastColumn(), 9);
-            if (numCols > 0) {
-              var dataToMigrate = sing.getRange(2, 1, lastRowSing - 1, numCols).getValues();
-              asegurarDimensionesHoja(pluralSheet, 1 + dataToMigrate.length, 9);
-              pluralSheet.getRange(2, 1, dataToMigrate.length, numCols).setValues(dataToMigrate);
-            }
-          }
-          ss.deleteSheet(sing);
-        } catch (eDel) {
-          Logger.log('Aviso al eliminar hoja singular: ' + eDel.toString());
-        }
-      }
-    }
-  } catch (err) {
-    Logger.log('Aviso al depurar pestañas de Procedimientos: ' + err.toString());
+function obtenerOCrearHoja(ss, tableDef) {
+  var sheet = buscarHoja(ss, tableDef);
+  if (!sheet) {
+    sheet = ss.insertSheet(tableDef.name);
+    sheet.appendRow(tableDef.headers);
+    formatearEncabezado(sheet, tableDef.headers.length);
   }
-}
-
-function onOpen() {
-  var ui = SpreadsheetApp.getUi();
-  ui.createMenu('🏥 Dr. Belleza')
-    .addItem('🚀 Inicializar / Crear Tablas Automáticamente', 'inicializarBaseDeDatos')
-    .addItem('🧹 Eliminar Hoja "Procedimiento" (Dejar solo "Procedimientos")', 'ejecutarLimpiezaProcedimientos')
-    .addItem('🔄 Reparar Encabezados y Formato', 'repararEncabezados')
-    .addToUi();
-}
-
-function ejecutarLimpiezaProcedimientos() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  depurarPestanaProcedimiento(ss);
-  SpreadsheetApp.getUi().alert('Limpieza exitosa: La hoja singular "Procedimiento" ha sido eliminada. La única hoja activa es "Procedimientos" (Plural).');
-}
-
-function inicializarBaseDeDatos() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  depurarPestanaProcedimiento(ss);
-  for (var key in SCHEMA) {
-    var table = SCHEMA[key];
-    var sheet = buscarHoja(ss, table);
-    if (!sheet) {
-      sheet = ss.insertSheet(table.name);
-    }
-    var lastRow = sheet.getLastRow();
-    if (lastRow === 0) {
-      sheet.appendRow(table.headers);
-    }
-    formatearEncabezado(sheet, table.headers.length);
-  }
-
-  try {
-    var defaultSheet1 = ss.getSheetByName('Hoja 1') || ss.getSheetByName('Sheet1');
-    if (defaultSheet1 && ss.getSheets().length > 1) {
-      ss.deleteSheet(defaultSheet1);
-    }
-  } catch (e) {}
-
-  depurarPestanaProcedimiento(ss);
-  sembrarDatosIniciales(ss);
-  return { status: 'ok', message: 'Tablas inicializadas correctamente (Hoja única: Procedimientos)' };
+  return sheet;
 }
 
 function formatearEncabezado(sheet, columnCount) {
@@ -216,16 +141,13 @@ function formatearEncabezado(sheet, columnCount) {
   sheet.setFrozenRows(1);
 }
 
-function repararEncabezados() {
+function inicializarBaseDeDatos() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   for (var key in SCHEMA) {
-    var table = SCHEMA[key];
-    var sheet = buscarHoja(ss, table);
-    if (sheet) {
-      sheet.getRange(1, 1, 1, table.headers.length).setValues([table.headers]);
-      formatearEncabezado(sheet, table.headers.length);
-    }
+    obtenerOCrearHoja(ss, SCHEMA[key]);
   }
+  sembrarDatosIniciales(ss);
+  return { status: 'ok', message: 'Base de datos inicializada correctamente (v3.5.0)' };
 }
 
 function sembrarDatosIniciales(ss) {
@@ -240,16 +162,13 @@ function sembrarDatosIniciales(ss) {
   var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
   if (procSheet && procSheet.getLastRow() <= 1) {
     var defaultProcs = [
-      ['QX-RINO', 'Facial', 'Rinoplastia Ultrasónica Estructural', 3200, 'Incluye valoración y revisiones'],
-      ['QX-LIPO', 'Corporal', 'Lipoescultura HD con Marcación', 4500, 'Incluye faja postquirúrgica'],
-      ['QX-MAMO', 'Corporal', 'Mamoplastia de Aumento con Implantes', 3800, 'Incluye prótesis microtexturadas'],
-      ['QX-BLEFARO', 'Facial', 'Blefaroplastia Superior e Inferior', 1800, 'Procedimiento ambulatorio'],
-      ['QX-ABDOMINO', 'Corporal', 'Abdominoplastia con Plicatura Muscular', 4200, 'Incluye faja y drenes'],
-      ['QX-MASTOPEXIA', 'Corporal', 'Mastopexia con Elevación Tisular', 4100, 'Reconstrucción mamaria'],
-      ['QX-BICHECTOMIA', 'Facial', 'Bichectomía Láser Ambulatoria', 950, 'Anestesia local'],
-      ['QX-GLUTEOS', 'Corporal', 'Gluteoplastia con Lipotransferencia', 3900, 'Incluye liposucción previa'],
-      ['QX-OTOPLASTIA', 'Facial', 'Otoplastia Bilateral Reconstructiva', 1600, 'Procedimiento ambulatorio'],
-      ['NX-BOTOX', 'Medicina Estética', 'Aplicación de Toxina Botulínica (3 Zonas)', 350, 'Incluye retoque a los 15 días']
+      ['PRC-001', 'QX-RINO', 'Rinoplastia Ultrasónica Estructural', 'Facial', 3200, 180, 'SI', 65, 'Activo', 'Incluye tomografía postoperatoria y yeso'],
+      ['PRC-002', 'QX-LIPO', 'Lipoescultura HD con Marcación', 'Corporal', 4500, 210, 'SI', 60, 'Activo', 'Incluye faja y drenajes linfáticos'],
+      ['PRC-003', 'QX-MAMA', 'Mamoplastia de Aumento Dual-Plane', 'Corporal', 3800, 150, 'SI', 60, 'Activo', 'Implantes Mentor / Motiva microtexturados'],
+      ['PRC-004', 'EST-BOTOX', 'Toxina Botulínica Full Face (Botox)', 'Medicina Estética', 350, 45, 'NO', 50, 'Activo', 'Frente, entrecejo y patas de gallo'],
+      ['PRC-5348', 'ABD-481', 'Abdominoplastia', 'Corporal', 3800, 90, 'SI', 65, 'Activo', 'Plicatura y remodelación'],
+      ['PRC-9615', 'ML-422', 'MELA', 'Corporal', 2400, 90, 'SI', 65, 'Activo', 'Miniextracción lipídica ambulatoria'],
+      ['PRC-1028', 'LG-258', 'Lipoinyección Glútea', 'Corporal', 500, 90, 'SI', 65, 'Activo', 'Lipotransferencia glútea']
     ];
     procSheet.getRange(2, 1, defaultProcs.length, defaultProcs[0].length).setValues(defaultProcs);
   }
@@ -261,63 +180,69 @@ function sembrarDatosIniciales(ss) {
       ['PLAN-002', 'Plan 12 Meses - Mensual (10% Interés)', 12, 'Mensual', 12, 10, 15, 'TRUE'],
       ['PLAN-003', 'Plan Quincenal 3 Meses (6 Cuotas)', 3, 'Quincenal', 6, 0, 25, 'TRUE'],
       ['PLAN-004', 'Plan Semanal 2 Meses (8 Cuotas)', 2, 'Semanal', 8, 0, 30, 'TRUE'],
-      ['PLAN-005', 'Plan Flexible Personalizado', 6, 'Mensual', 6, 5, 20, 'TRUE'],
-      ['PLAN-006', 'Pago Contado / En Una Sola Cuota', 1, 'Mensual', 1, 0, 100, 'TRUE'],
-      ['PLAN-007', 'Plan Premium 18 Meses (15% Interés)', 18, 'Mensual', 18, 15, 10, 'TRUE']
+      ['PLAN-005', 'Plan Flexible Personalizado', 6, 'Mensual', 6, 5, 20, 'TRUE']
     ];
     planSheet.getRange(2, 1, defaultPlans.length, defaultPlans[0].length).setValues(defaultPlans);
   }
 }
 
+/**
+ * Endpoint GET: Trae datos o responde diagnósticos
+ */
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  depurarPestanaProcedimiento(ss);
   var action = (e && e.parameter && e.parameter.action) || 'PING';
+
   if (action === 'GET_ALL') {
     return responderJSON(obtenerTodosLosDatos(ss));
   }
-  if (action === 'CLEANUP_PROCEDURE_SHEETS' || action === 'CLEANUP_PROCEDURES_TAB') {
-    depurarPestanaProcedimiento(ss);
-    return responderJSON({
-      status: 'ok',
-      message: 'Hoja singular "Procedimiento" depurada exitosamente. Se conserva únicamente "Procedimientos" (Plural).',
-      sheetsFound: ss.getSheets().map(function(s) { return s.getName(); })
-    });
-  }
+
   if (action === 'TEST_PROCEDURE') {
     var procSheet = buscarHoja(ss, SCHEMA.PROCEDIMIENTOS);
     var count = procSheet ? Math.max(0, procSheet.getLastRow() - 1) : 0;
     return responderJSON({
       status: 'ok',
+      version: '3.5.0-UNIFIED',
       message: 'Hoja "Procedimientos" verificada y lista para recibir datos.',
       procedureSheetFound: !!procSheet,
       procedureCount: count,
       spreadsheetName: ss.getName()
     });
   }
+
   return responderJSON({
     status: 'ok',
+    version: '3.5.0-UNIFIED',
     message: 'Servicio Web App Dr. Belleza activo (Hoja oficial: Procedimientos)',
     spreadsheetName: ss.getName(),
     spreadsheetId: ss.getId(),
     spreadsheetUrl: ss.getUrl(),
     procedureSheetName: 'Procedimientos',
     sheetsFound: ss.getSheets().map(function(s) { return s.getName(); }),
-    capabilities: ['SAVE_PROCEDURE', 'SAVE_ALL_PROCEDURES', 'DELETE_PROCEDURE', 'BATCH_SYNC', 'CLEANUP_PROCEDURE_SHEETS']
+    capabilities: [
+      'procedures',
+      'financing_plans',
+      'crm_events',
+      'batch_sync',
+      'SAVE_PROCEDURE',
+      'SAVE_ALL_PROCEDURES',
+      'DELETE_PROCEDURE'
+    ]
   });
 }
 
+/**
+ * Endpoint POST: Procesa todas las operaciones de escritura con ScriptLock
+ */
 function doPost(e) {
   var lock = LockService.getScriptLock();
   var hasLock = false;
   try {
     try {
-      hasLock = lock.tryLock(8000);
-    } catch (eLock) {
-      Logger.log('Aviso al intentar lock: ' + eLock);
-    }
+      hasLock = lock.tryLock(10000);
+    } catch (eLock) {}
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    depurarPestanaProcedimiento(ss);
 
     for (var key in SCHEMA) {
       if (!buscarHoja(ss, SCHEMA[key])) {
@@ -335,26 +260,23 @@ function doPost(e) {
 
     switch (action) {
       case 'PING':
-        depurarPestanaProcedimiento(ss);
-        var procSheetFound = buscarHoja(ss, SCHEMA.PROCEDIMIENTOS);
         return responderJSON({
           status: 'ok',
+          version: '3.5.0-UNIFIED',
           message: 'Conexión exitosa con Google Apps Script',
           spreadsheetName: ss.getName(),
           spreadsheetId: ss.getId(),
           spreadsheetUrl: ss.getUrl(),
-          procedureSheetName: procSheetFound ? procSheetFound.getName() : 'Procedimientos',
           sheetsFound: ss.getSheets().map(function(s) { return s.getName(); }),
-          capabilities: ['procedures', 'financing_plans', 'crm_events', 'batch_sync']
-        });
-
-      case 'CLEANUP_PROCEDURE_SHEETS':
-      case 'CLEANUP_PROCEDURES_TAB':
-        depurarPestanaProcedimiento(ss);
-        return responderJSON({
-          status: 'ok',
-          message: 'Hoja singular "Procedimiento" eliminada exitosamente. Se conserva únicamente "Procedimientos" (Plural).',
-          sheetsFound: ss.getSheets().map(function(s) { return s.getName(); })
+          capabilities: [
+            'procedures',
+            'financing_plans',
+            'crm_events',
+            'batch_sync',
+            'SAVE_PROCEDURE',
+            'SAVE_ALL_PROCEDURES',
+            'DELETE_PROCEDURE'
+          ]
         });
 
       case 'GET_ALL':
@@ -388,12 +310,15 @@ function doPost(e) {
         return responderJSON(guardarEventoCRM(ss, payload.event));
 
       case 'SAVE_PROCEDURE':
+      case 'SAVE_SURGICAL_PROCEDURE':
+      case 'SAVE_PROCEDURES':
         return responderJSON(guardarProcedimiento(ss, payload.procedure));
 
       case 'DELETE_PROCEDURE':
         return responderJSON(borrarProcedimiento(ss, payload.procedureId));
 
       case 'SAVE_ALL_PROCEDURES':
+      case 'SYNC_PROCEDURES':
         return responderJSON(guardarTodosProcedimientos(ss, payload.procedures));
 
       case 'SAVE_FINANCING_PLAN':
@@ -429,9 +354,9 @@ function responderJSON(obj) {
 }
 
 function obtenerTodosLosDatos(ss) {
-  depurarPestanaProcedimiento(ss);
   return {
     status: 'ok',
+    version: '3.5.0-UNIFIED',
     patients: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.PACIENTES), mapearPacienteDesdeFila),
     payments: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.ABONOS), mapearPagoDesdeFila),
     refunds: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.REINTEGROS), mapearReintegroDesdeFila),
@@ -470,9 +395,9 @@ function mapearPacienteDesdeFila(r) {
     campaign: String(r[6] || ''),
     procedure: String(r[7] || ''),
     doctor: String(r[8] || 'Dr. Jorge Apelencia'),
-    totalCost: Number(r[9]) || 0,
-    totalPaid: Number(r[10]) || 0,
-    balance: Number(r[11]) || 0,
+    totalCost: parseFloat(String(r[9]).replace(/[^0-9.-]/g, '')) || 0,
+    totalPaid: parseFloat(String(r[10]).replace(/[^0-9.-]/g, '')) || 0,
+    balance: parseFloat(String(r[11]).replace(/[^0-9.-]/g, '')) || 0,
     registrationDate: formatearFecha(r[12]),
     status: String(r[13] || 'pending'),
     financingPlanName: String(r[14] || ''),
@@ -486,7 +411,7 @@ function mapearPagoDesdeFila(r) {
     id: String(r[0]),
     patientId: String(r[1] || ''),
     patientName: String(r[2] || ''),
-    amount: Number(r[3]) || 0,
+    amount: parseFloat(String(r[3]).replace(/[^0-9.-]/g, '')) || 0,
     date: formatearFecha(r[4]),
     paymentMethod: String(r[5] || 'Transferencia'),
     reference: String(r[6] || ''),
@@ -501,7 +426,7 @@ function mapearReintegroDesdeFila(r) {
     id: String(r[0]),
     patientId: String(r[1] || ''),
     patientName: String(r[2] || ''),
-    amount: Number(r[3]) || 0,
+    amount: parseFloat(String(r[3]).replace(/[^0-9.-]/g, '')) || 0,
     date: formatearFecha(r[4]),
     reason: String(r[5] || ''),
     refundMethod: String(r[6] || 'Transferencia'),
@@ -539,37 +464,55 @@ function mapearEventoCRMDesdeFila(r) {
     dueTime: String(r[8] || '09:00'),
     status: String(r[9] || 'pending'),
     priority: String(r[10] || 'media'),
-    amount: r[11] ? Number(r[11]) : undefined,
-    installmentNumber: r[12] ? Number(r[12]) : undefined,
+    amount: r[11] ? parseFloat(String(r[11]).replace(/[^0-9.-]/g, '')) : undefined,
+    installmentNumber: r[12] ? parseInt(r[12]) : undefined,
     procedure: String(r[13] || ''),
     channel: String(r[14] || 'whatsapp'),
     createdAt: String(r[15] || new Date().toISOString())
   };
 }
 
+/**
+ * Mapea procedimientos quirúrgicos soportando tanto el formato canónico de 10 columnas
+ * como el formato legado de 5 columnas sin corromper ni mezclar los campos.
+ */
 function mapearProcedimientoDesdeFila(r) {
-  // Retrocompatibilidad con 9 o 10 columnas
-  if (r.length >= 8 && typeof r[4] === 'number') {
+  if (!r || !r[0]) return null;
+
+  // Formato canónico (10 columnas): ID, Código, Nombre, Categoría, Precio, Duración, Quirófano, Comisión, Estado, Observaciones
+  if (r.length >= 6) {
+    var rawActive = String(r[8] || '').toLowerCase().trim();
+    var isActive = rawActive !== 'false' && rawActive !== 'inactivo' && rawActive !== 'no' && rawActive !== '0';
+    var rawOR = String(r[6] || '').toLowerCase().trim();
+    var requiresOR = rawOR === 'si' || rawOR === 'true' || rawOR === 'sí' || rawOR === '1';
+
     return {
-      id: String(r[0]),
-      code: String(r[1] || r[0]),
-      name: String(r[2] || ''),
-      category: String(r[3] || 'Facial'),
-      basePrice: Number(r[4]) || 0,
-      notes: String(r[9] || ''),
-      isActive: String(r[8]).toLowerCase() !== 'false'
+      id: String(r[0]).trim(),
+      code: String(r[1] || r[0]).trim(),
+      name: String(r[2] || '').trim(),
+      category: String(r[3] || 'Facial').trim(),
+      basePrice: parseFloat(String(r[4]).replace(/[^0-9.-]/g, '')) || 0,
+      durationMinutes: parseInt(r[5]) || 60,
+      requiresOR: requiresOR,
+      doctorCommissionPercent: parseFloat(String(r[7]).replace(/[^0-9.-]/g, '')) || 65,
+      isActive: isActive,
+      notes: String(r[9] || '').trim()
     };
   }
-  // Formato nuevo exacto: Código Único, Categoría, Nombre del Procedimiento, Precio Base (USD), Observaciones
+
+  // Formato legado (5 columnas): Código, Categoría, Nombre, Precio, Observaciones
   var code = String(r[0] || '').trim();
   return {
     id: code,
     code: code,
-    category: String(r[1] || 'Facial'),
-    name: String(r[2] || ''),
-    basePrice: Number(r[3]) || 0,
-    notes: String(r[4] || ''),
-    isActive: true
+    category: String(r[1] || 'Facial').trim(),
+    name: String(r[2] || '').trim(),
+    basePrice: parseFloat(String(r[3]).replace(/[^0-9.-]/g, '')) || 0,
+    durationMinutes: 60,
+    requiresOR: false,
+    doctorCommissionPercent: 65,
+    isActive: true,
+    notes: String(r[4] || '').trim()
   };
 }
 
@@ -597,61 +540,24 @@ function formatearFecha(valor) {
   return String(valor).split('T')[0];
 }
 
-function asegurarDimensionesHoja(sheet, minFilas, minColumnas) {
-  if (!sheet) return;
-  var maxFilas = sheet.getMaxRows();
-  if (maxFilas < minFilas) {
-    sheet.insertRowsAfter(maxFilas, minFilas - maxFilas);
-  }
-  var maxCols = sheet.getMaxColumns();
-  if (maxCols < minColumnas) {
-    sheet.insertColumnsAfter(maxCols, minColumnas - maxCols);
-  }
-}
-
-function obtenerOCrearHoja(ss, tableDef) {
-  var sheet = buscarHoja(ss, tableDef);
-  if (!sheet) {
-    sheet = ss.insertSheet(tableDef.name);
-    sheet.appendRow(tableDef.headers);
-    formatearEncabezado(sheet, tableDef.headers.length);
-  } else if (sheet.getLastRow() === 0) {
-    sheet.appendRow(tableDef.headers);
-    formatearEncabezado(sheet, tableDef.headers.length);
-  }
-  return sheet;
-}
-
-function guardarPaciente(ss, patient) {
+function guardarPaciente(ss, p) {
+  if (!p || !p.id) return { status: 'error', message: 'Datos de paciente inválidos' };
   var sheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
 
   for (var i = 1; i < values.length; i++) {
-    if (String(values[i][0]) === String(patient.id)) {
+    if (String(values[i][0]) === String(p.id)) {
       rowIndex = i + 1;
       break;
     }
   }
 
   var rowData = [
-    patient.id,
-    patient.fullName,
-    patient.phone || '',
-    patient.idNumber || '',
-    patient.email || '',
-    patient.city || '',
-    patient.campaign || '',
-    patient.procedure || '',
-    patient.doctor || 'Dr. Jorge Apelencia',
-    patient.totalCost || 0,
-    patient.totalPaid || 0,
-    patient.balance !== undefined ? patient.balance : Math.max(0, (patient.totalCost || 0) - (patient.totalPaid || 0)),
-    patient.registrationDate || formatearFecha(new Date()),
-    patient.status || (patient.balance <= 0 ? 'paid' : 'pending'),
-    patient.financingPlanName || '',
-    patient.nextPaymentDate || '',
-    patient.notes || '',
+    p.id, p.fullName, p.phone, p.idNumber, p.email, p.city, p.campaign,
+    p.procedure, p.doctor || 'Dr. Jorge Apelencia', p.totalCost, p.totalPaid,
+    p.balance, p.registrationDate || new Date().toISOString(), p.status || 'pending',
+    p.financingPlanName || '', p.nextPaymentDate || '', p.notes || '',
     new Date().toISOString()
   ];
 
@@ -660,154 +566,162 @@ function guardarPaciente(ss, patient) {
   } else {
     sheet.appendRow(rowData);
   }
-
-  return { status: 'ok', message: 'Paciente guardado exitosamente', id: patient.id };
+  return { status: 'ok', message: 'Paciente guardado' };
 }
 
 function borrarPacienteEnCascada(ss, patientId) {
-  var idStr = String(patientId);
-  borrarFilasDondeColumnaSea(ss.getSheetByName(SCHEMA.PACIENTES.name), 0, idStr);
-  var deletedPayments = borrarFilasDondeColumnaSea(ss.getSheetByName(SCHEMA.ABONOS.name), 1, idStr);
-  var deletedRefunds = borrarFilasDondeColumnaSea(ss.getSheetByName(SCHEMA.REINTEGROS.name), 1, idStr);
-  var deletedEvents = borrarFilasDondeColumnaSea(ss.getSheetByName(SCHEMA.CRM.name), 1, idStr);
-
-  return {
-    status: 'ok',
-    message: 'Paciente y todos sus registros eliminados en cascada',
-    deletedPayments: deletedPayments,
-    deletedRefunds: deletedRefunds,
-    deletedEvents: deletedEvents
-  };
-}
-
-function borrarFilasDondeColumnaSea(sheet, colIndex, targetValue) {
-  if (!sheet || sheet.getLastRow() <= 1) return 0;
-  var values = sheet.getDataRange().getValues();
-  var count = 0;
-  for (var i = values.length - 1; i >= 1; i--) {
-    if (String(values[i][colIndex]) === targetValue) {
-      sheet.deleteRow(i + 1);
-      count++;
+  var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
+  var patValues = patSheet.getDataRange().getValues();
+  for (var i = 1; i < patValues.length; i++) {
+    if (String(patValues[i][0]) === String(patientId)) {
+      patSheet.deleteRow(i + 1);
+      break;
     }
   }
-  return count;
+
+  var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
+  var payValues = paySheet.getDataRange().getValues();
+  for (var j = payValues.length - 1; j >= 1; j--) {
+    if (String(payValues[j][1]) === String(patientId)) {
+      paySheet.deleteRow(j + 1);
+    }
+  }
+
+  var refSheet = obtenerOCrearHoja(ss, SCHEMA.REINTEGROS);
+  var refValues = refSheet.getDataRange().getValues();
+  for (var k = refValues.length - 1; k >= 1; k--) {
+    if (String(refValues[k][1]) === String(patientId)) {
+      refSheet.deleteRow(k + 1);
+    }
+  }
+
+  var crmSheet = obtenerOCrearHoja(ss, SCHEMA.CRM);
+  var crmValues = crmSheet.getDataRange().getValues();
+  for (var m = crmValues.length - 1; m >= 1; m--) {
+    if (String(crmValues[m][1]) === String(patientId)) {
+      crmSheet.deleteRow(m + 1);
+    }
+  }
+
+  return { status: 'ok', message: 'Paciente y registros asociados eliminados en cascada' };
 }
 
-function guardarPagoYActualizarSaldo(ss, payment) {
-  var paySheet = ss.getSheetByName(SCHEMA.ABONOS.name);
+function guardarPagoYActualizarSaldo(ss, p) {
+  var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
   paySheet.appendRow([
-    payment.id,
-    payment.patientId,
-    payment.patientName,
-    payment.amount,
-    payment.date || formatearFecha(new Date()),
-    payment.paymentMethod || 'Transferencia',
-    payment.reference || '',
-    payment.registeredBy || '',
-    payment.notes || '',
-    payment.createdAt || new Date().toISOString()
+    p.id, p.patientId, p.patientName, p.amount, p.date,
+    p.paymentMethod, p.reference || '', p.registeredBy || '',
+    p.notes || '', p.createdAt || new Date().toISOString()
   ]);
 
-  recalcularTotalesPaciente(ss, payment.patientId);
-  return { status: 'ok', message: 'Pago guardado', id: payment.id };
+  var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
+  var patValues = patSheet.getDataRange().getValues();
+  for (var i = 1; i < patValues.length; i++) {
+    if (String(patValues[i][0]) === String(p.patientId)) {
+      var totalCost = Number(patValues[i][9]) || 0;
+      var totalPaid = (Number(patValues[i][10]) || 0) + Number(p.amount);
+      var balance = totalCost - totalPaid;
+      var status = balance <= 0 ? 'paid' : 'pending';
+      patSheet.getRange(i + 1, 11).setValue(totalPaid);
+      patSheet.getRange(i + 1, 12).setValue(balance);
+      patSheet.getRange(i + 1, 14).setValue(status);
+      patSheet.getRange(i + 1, 18).setValue(new Date().toISOString());
+      break;
+    }
+  }
+  return { status: 'ok', message: 'Pago registrado y saldo actualizado' };
 }
 
 function borrarPagoYRecalcular(ss, paymentId) {
-  var paySheet = ss.getSheetByName(SCHEMA.ABONOS.name);
-  if (!paySheet || paySheet.getLastRow() <= 1) return { status: 'ok' };
-  var values = paySheet.getDataRange().getValues();
-  var patientId = null;
+  var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
+  var payValues = paySheet.getDataRange().getValues();
+  var deletedPatientId = null;
+  var deletedAmount = 0;
 
-  for (var i = values.length - 1; i >= 1; i--) {
-    if (String(values[i][0]) === String(paymentId)) {
-      patientId = String(values[i][1]);
+  for (var i = 1; i < payValues.length; i++) {
+    if (String(payValues[i][0]) === String(paymentId)) {
+      deletedPatientId = payValues[i][1];
+      deletedAmount = Number(payValues[i][3]) || 0;
       paySheet.deleteRow(i + 1);
       break;
     }
   }
 
-  if (patientId) recalcularTotalesPaciente(ss, patientId);
-  return { status: 'ok', message: 'Pago eliminado' };
-}
-
-function guardarReintegro(ss, refund) {
-  var refSheet = ss.getSheetByName(SCHEMA.REINTEGROS.name);
-  refSheet.appendRow([
-    refund.id,
-    refund.patientId,
-    refund.patientName,
-    refund.amount,
-    refund.date || formatearFecha(new Date()),
-    refund.reason || '',
-    refund.refundMethod || 'Transferencia',
-    refund.reference || '',
-    refund.registeredBy || '',
-    refund.createdAt || new Date().toISOString()
-  ]);
-  return { status: 'ok', message: 'Reintegro guardado' };
-}
-
-function borrarReintegro(ss, refundId) {
-  borrarFilasDondeColumnaSea(ss.getSheetByName(SCHEMA.REINTEGROS.name), 0, String(refundId));
-  return { status: 'ok', message: 'Reintegro eliminado' };
-}
-
-function recalcularTotalesPaciente(ss, patientId) {
-  var idStr = String(patientId);
-  var paySheet = ss.getSheetByName(SCHEMA.ABONOS.name);
-  var patSheet = ss.getSheetByName(SCHEMA.PACIENTES.name);
-
-  var totalPaid = 0;
-  if (paySheet && paySheet.getLastRow() > 1) {
-    var payValues = paySheet.getDataRange().getValues();
-    for (var i = 1; i < payValues.length; i++) {
-      if (String(payValues[i][1]) === idStr) {
-        totalPaid += Number(payValues[i][3]) || 0;
-      }
-    }
-  }
-
-  if (patSheet && patSheet.getLastRow() > 1) {
+  if (deletedPatientId) {
+    var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
     var patValues = patSheet.getDataRange().getValues();
     for (var j = 1; j < patValues.length; j++) {
-      if (String(patValues[j][0]) === idStr) {
+      if (String(patValues[j][0]) === String(deletedPatientId)) {
         var totalCost = Number(patValues[j][9]) || 0;
-        var newBalance = Math.max(0, totalCost - totalPaid);
-        var newStatus = newBalance <= 0 ? 'paid' : 'pending';
-
+        var totalPaid = Math.max(0, (Number(patValues[j][10]) || 0) - deletedAmount);
+        var balance = totalCost - totalPaid;
+        var status = balance <= 0 ? 'paid' : 'pending';
         patSheet.getRange(j + 1, 11).setValue(totalPaid);
-        patSheet.getRange(j + 1, 12).setValue(newBalance);
-        patSheet.getRange(j + 1, 14).setValue(newStatus);
+        patSheet.getRange(j + 1, 12).setValue(balance);
+        patSheet.getRange(j + 1, 14).setValue(status);
         patSheet.getRange(j + 1, 18).setValue(new Date().toISOString());
         break;
       }
     }
   }
+  return { status: 'ok', message: 'Pago eliminado y saldo recalculado' };
 }
 
-function guardarUsuario(ss, user) {
+function guardarReintegro(ss, r) {
+  var refSheet = obtenerOCrearHoja(ss, SCHEMA.REINTEGROS);
+  refSheet.appendRow([
+    r.id, r.patientId, r.patientName, r.amount, r.date,
+    r.reason, r.refundMethod, r.reference || '', r.registeredBy || '',
+    r.createdAt || new Date().toISOString()
+  ]);
+
+  var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
+  var patValues = patSheet.getDataRange().getValues();
+  for (var i = 1; i < patValues.length; i++) {
+    if (String(patValues[i][0]) === String(r.patientId)) {
+      var totalCost = Number(patValues[i][9]) || 0;
+      var totalPaid = Math.max(0, (Number(patValues[i][10]) || 0) - Number(r.amount));
+      var balance = totalCost - totalPaid;
+      var status = balance <= 0 ? 'paid' : 'pending';
+      patSheet.getRange(i + 1, 11).setValue(totalPaid);
+      patSheet.getRange(i + 1, 12).setValue(balance);
+      patSheet.getRange(i + 1, 14).setValue(status);
+      patSheet.getRange(i + 1, 18).setValue(new Date().toISOString());
+      break;
+    }
+  }
+  return { status: 'ok', message: 'Reintegro registrado' };
+}
+
+function borrarReintegro(ss, refundId) {
+  var refSheet = obtenerOCrearHoja(ss, SCHEMA.REINTEGROS);
+  var refValues = refSheet.getDataRange().getValues();
+  for (var i = 1; i < refValues.length; i++) {
+    if (String(refValues[i][0]) === String(refundId)) {
+      refSheet.deleteRow(i + 1);
+      return { status: 'ok', message: 'Reintegro eliminado' };
+    }
+  }
+  return { status: 'ok', message: 'Reintegro no encontrado' };
+}
+
+function guardarUsuario(ss, u) {
   var sheet = obtenerOCrearHoja(ss, SCHEMA.USUARIOS);
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
 
   for (var i = 1; i < values.length; i++) {
-    if (String(values[i][0]) === String(user.id)) {
+    if (String(values[i][0]) === String(u.id)) {
       rowIndex = i + 1;
       break;
     }
   }
 
   var rowData = [
-    user.id,
-    user.fullName,
-    user.email,
-    user.role,
-    user.phone || '',
-    user.password || '',
-    String(user.isActive !== false),
-    String(user.isImmutable === true),
-    user.createdAt || formatearFecha(new Date()),
-    user.notes || ''
+    u.id, u.fullName, u.email, u.role, u.phone || '',
+    u.password || '', u.isActive !== false ? 'true' : 'false',
+    u.isImmutable ? 'true' : 'false', u.createdAt || new Date().toISOString(),
+    u.notes || ''
   ];
 
   if (rowIndex > 1) {
@@ -823,9 +737,6 @@ function borrarUsuario(ss, userId) {
   var values = sheet.getDataRange().getValues();
   for (var i = 1; i < values.length; i++) {
     if (String(values[i][0]) === String(userId)) {
-      if (String(values[i][7]).toLowerCase() === 'true') {
-        throw new Error('Usuario protegido contra eliminación');
-      }
       sheet.deleteRow(i + 1);
       return { status: 'ok', message: 'Usuario eliminado' };
     }
@@ -837,6 +748,7 @@ function guardarEventoCRM(ss, ev) {
   var sheet = obtenerOCrearHoja(ss, SCHEMA.CRM);
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
+
   for (var i = 1; i < values.length; i++) {
     if (String(values[i][0]) === String(ev.id)) {
       rowIndex = i + 1;
@@ -845,8 +757,8 @@ function guardarEventoCRM(ss, ev) {
   }
 
   var rowData = [
-    ev.id, ev.patientId, ev.patientName, ev.patientPhone || '',
-    ev.type, ev.title, ev.description || '', ev.dueDate,
+    ev.id, ev.patientId, ev.patientName, ev.patientPhone, ev.type,
+    ev.title, ev.description, ev.dueDate,
     ev.dueTime || '09:00', ev.status, ev.priority, ev.amount || '',
     ev.installmentNumber || '', ev.procedure || '', ev.channel || 'whatsapp',
     ev.createdAt || new Date().toISOString()
@@ -860,30 +772,35 @@ function guardarEventoCRM(ss, ev) {
   return { status: 'ok', message: 'Evento CRM guardado' };
 }
 
+/**
+ * Guarda o actualiza un procedimiento individualmente en la hoja 'Procedimientos'.
+ * Localiza la fila por ID, por Código o por Nombre.
+ */
 function guardarProcedimiento(ss, proc) {
   if (!proc) return { status: 'error', message: 'Procedimiento no proporcionado' };
-  depurarPestanaProcedimiento(ss);
   var sheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
+
+  // Asegurar encabezados
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
     formatearEncabezado(sheet, SCHEMA.PROCEDIMIENTOS.headers.length);
-  } else if (sheet.getLastColumn() < SCHEMA.PROCEDIMIENTOS.headers.length) {
-    asegurarDimensionesHoja(sheet, 1, SCHEMA.PROCEDIMIENTOS.headers.length);
-    for (var h = sheet.getLastColumn(); h < SCHEMA.PROCEDIMIENTOS.headers.length; h++) {
-      sheet.getRange(1, h + 1).setValue(SCHEMA.PROCEDIMIENTOS.headers[h]);
-    }
-    formatearEncabezado(sheet, SCHEMA.PROCEDIMIENTOS.headers.length);
   }
+
   var values = sheet.getDataRange().getValues();
   var rowIndex = -1;
-  var targetCode = String(proc.code || proc.id || '').trim().toUpperCase();
-  var targetName = String(proc.name || '').trim().toLowerCase();
+
+  var targetId = String(proc.id || '').trim().toUpperCase();
+  var targetCode = String(proc.code || '').trim().toUpperCase();
+  var targetName = normalizarTexto(proc.name);
 
   for (var i = 1; i < values.length; i++) {
-    var rowCode = String(values[i][0] || '').trim().toUpperCase();
-    var rowName = String(values[i][2] || '').trim().toLowerCase();
+    var rowId = String(values[i][0] || '').trim().toUpperCase();
+    var rowCode = String(values[i][1] || values[i][0] || '').trim().toUpperCase();
+    var rowName = normalizarTexto(values[i][2]);
+
     if (
-      (targetCode && rowCode === targetCode) ||
+      (targetId && rowId === targetId) ||
+      (targetCode && (rowCode === targetCode || rowId === targetCode)) ||
       (targetName && rowName === targetName)
     ) {
       rowIndex = i + 1;
@@ -891,17 +808,20 @@ function guardarProcedimiento(ss, proc) {
     }
   }
 
-  // Schema: Código Único, Categoría, Nombre del Procedimiento, Precio Base (USD), Observaciones
   var rowData = [
-    proc.code || proc.id || ('QX-' + Math.floor(100 + Math.random() * 900)),
-    proc.category || 'Facial',
+    proc.id || ('PRC-' + (proc.code || Math.floor(1000 + Math.random() * 9000))),
+    proc.code || proc.id || '',
     proc.name || '',
+    proc.category || 'Facial',
     Number(proc.basePrice) || 0,
+    Number(proc.durationMinutes) || 60,
+    proc.requiresOR !== false ? 'SI' : 'NO',
+    Number(proc.doctorCommissionPercent) || 65,
+    proc.isActive !== false ? 'Activo' : 'Inactivo',
     proc.notes || ''
   ];
 
   if (rowIndex > 1) {
-    asegurarDimensionesHoja(sheet, rowIndex, rowData.length);
     sheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
   } else {
     sheet.appendRow(rowData);
@@ -909,39 +829,67 @@ function guardarProcedimiento(ss, proc) {
   return { status: 'ok', message: 'Procedimiento guardado en hoja ' + sheet.getName(), sheetName: sheet.getName() };
 }
 
+/**
+ * Elimina un procedimiento buscando por ID o por Código
+ */
 function borrarProcedimiento(ss, procId) {
   var sheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
   var values = sheet.getDataRange().getValues();
-  var target = String(procId).trim().toUpperCase();
+  var target = String(procId || '').trim().toUpperCase();
+
   for (var i = 1; i < values.length; i++) {
-    if (String(values[i][0]).trim().toUpperCase() === target || (values[i][1] && String(values[i][1]).trim().toUpperCase() === target)) {
+    var rowId = String(values[i][0] || '').trim().toUpperCase();
+    var rowCode = String(values[i][1] || '').trim().toUpperCase();
+    if (rowId === target || rowCode === target) {
       sheet.deleteRow(i + 1);
-      return { status: 'ok', message: 'Procedimiento eliminado' };
+      return { status: 'ok', message: 'Procedimiento eliminado de la hoja' };
     }
   }
-  return { status: 'ok', message: 'Procedimiento no encontrado' };
+  return { status: 'ok', message: 'Procedimiento no encontrado en la hoja' };
 }
 
+/**
+ * Guarda o actualiza todo el catálogo de procedimientos en una sola operación atómica.
+ * No utiliza clearContents() seguido de appendRow() para evitar filas vacías desfasadas.
+ */
 function guardarTodosProcedimientos(ss, proceduresList) {
-  depurarPestanaProcedimiento(ss);
   var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
-  procSheet.clearContents();
-  procSheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
-  formatearEncabezado(procSheet, SCHEMA.PROCEDIMIENTOS.headers.length);
-  if (Array.isArray(proceduresList) && proceduresList.length > 0) {
+  var headers = SCHEMA.PROCEDIMIENTOS.headers;
+
+  // Escribir encabezado en Fila 1
+  procSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  formatearEncabezado(procSheet, headers.length);
+
+  var totalProcs = Array.isArray(proceduresList) ? proceduresList.length : 0;
+  if (totalProcs > 0) {
     var rows = proceduresList.map(function(pr) {
       return [
+        pr.id || ('PRC-' + (pr.code || Math.floor(1000 + Math.random() * 9000))),
         pr.code || pr.id || '',
-        pr.category || 'Facial',
         pr.name || '',
+        pr.category || 'Facial',
         Number(pr.basePrice) || 0,
+        Number(pr.durationMinutes) || 60,
+        pr.requiresOR !== false ? 'SI' : 'NO',
+        Number(pr.doctorCommissionPercent) || 65,
+        pr.isActive !== false ? 'Activo' : 'Inactivo',
         pr.notes || ''
       ];
     });
-    asegurarDimensionesHoja(procSheet, 1 + rows.length, SCHEMA.PROCEDIMIENTOS.headers.length);
-    procSheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+    procSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
-  return { status: 'ok', message: 'Procedimientos actualizados en hoja ' + procSheet.getName() + ' (' + (proceduresList ? proceduresList.length : 0) + ')', sheetName: procSheet.getName() };
+
+  // Limpiar cualquier fila residual que haya quedado abajo
+  var lastRow = procSheet.getLastRow();
+  if (lastRow > 1 + totalProcs) {
+    procSheet.getRange(2 + totalProcs, 1, lastRow - (1 + totalProcs), headers.length).clearContent();
+  }
+
+  return {
+    status: 'ok',
+    message: 'Catálogo de procedimientos sincronizado (' + totalProcs + ' procedimientos)',
+    sheetName: procSheet.getName()
+  };
 }
 
 function guardarPlanFinanciamiento(ss, plan) {
@@ -967,7 +915,6 @@ function guardarPlanFinanciamiento(ss, plan) {
   ];
 
   if (rowIndex > 1) {
-    asegurarDimensionesHoja(sheet, rowIndex, rowData.length);
     sheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
   } else {
     sheet.appendRow(rowData);
@@ -989,10 +936,12 @@ function borrarPlanFinanciamiento(ss, planId) {
 
 function guardarTodosPlanes(ss, planesList) {
   var planSheet = obtenerOCrearHoja(ss, SCHEMA.PLANES);
-  planSheet.clearContents();
-  planSheet.appendRow(SCHEMA.PLANES.headers);
-  formatearEncabezado(planSheet, SCHEMA.PLANES.headers.length);
-  if (Array.isArray(planesList) && planesList.length > 0) {
+  var headers = SCHEMA.PLANES.headers;
+  planSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  formatearEncabezado(planSheet, headers.length);
+
+  var total = Array.isArray(planesList) ? planesList.length : 0;
+  if (total > 0) {
     var rows = planesList.map(function(pl) {
       return [
         pl.id,
@@ -1005,25 +954,34 @@ function guardarTodosPlanes(ss, planesList) {
         pl.isActive !== false ? 'TRUE' : 'FALSE'
       ];
     });
-    asegurarDimensionesHoja(planSheet, 1 + rows.length, SCHEMA.PLANES.headers.length);
-    planSheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+    planSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
-  return { status: 'ok', message: 'Planes de financiamiento actualizados (' + (planesList ? planesList.length : 0) + ')' };
+
+  var lastRow = planSheet.getLastRow();
+  if (lastRow > 1 + total) {
+    planSheet.getRange(2 + total, 1, lastRow - (1 + total), headers.length).clearContent();
+  }
+
+  return { status: 'ok', message: 'Planes de financiamiento actualizados (' + total + ')' };
 }
 
+/**
+ * Sincronización masiva de todas las colecciones del sistema
+ */
 function sincronizarMasivo(ss, data) {
   if (data.patients && Array.isArray(data.patients)) {
     var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
-    patSheet.clearContents();
-    patSheet.appendRow(SCHEMA.PACIENTES.headers);
-    formatearEncabezado(patSheet, SCHEMA.PACIENTES.headers.length);
+    var patHeaders = SCHEMA.PACIENTES.headers;
+    patSheet.getRange(1, 1, 1, patHeaders.length).setValues([patHeaders]);
+    formatearEncabezado(patSheet, patHeaders.length);
     data.patients.forEach(function(p) { guardarPaciente(ss, p); });
   }
+
   if (data.payments && Array.isArray(data.payments)) {
     var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
-    paySheet.clearContents();
-    paySheet.appendRow(SCHEMA.ABONOS.headers);
-    formatearEncabezado(paySheet, SCHEMA.ABONOS.headers.length);
+    var payHeaders = SCHEMA.ABONOS.headers;
+    paySheet.getRange(1, 1, 1, payHeaders.length).setValues([payHeaders]);
+    formatearEncabezado(paySheet, payHeaders.length);
     data.payments.forEach(function(p) {
       paySheet.appendRow([
         p.id, p.patientId, p.patientName, p.amount, p.date,
@@ -1032,11 +990,12 @@ function sincronizarMasivo(ss, data) {
       ]);
     });
   }
+
   if (data.refunds && Array.isArray(data.refunds)) {
     var refSheet = obtenerOCrearHoja(ss, SCHEMA.REINTEGROS);
-    refSheet.clearContents();
-    refSheet.appendRow(SCHEMA.REINTEGROS.headers);
-    formatearEncabezado(refSheet, SCHEMA.REINTEGROS.headers.length);
+    var refHeaders = SCHEMA.REINTEGROS.headers;
+    refSheet.getRange(1, 1, 1, refHeaders.length).setValues([refHeaders]);
+    formatearEncabezado(refSheet, refHeaders.length);
     data.refunds.forEach(function(r) {
       refSheet.appendRow([
         r.id, r.patientId, r.patientName, r.amount, r.date,
@@ -1045,59 +1004,33 @@ function sincronizarMasivo(ss, data) {
       ]);
     });
   }
+
   if (data.users && Array.isArray(data.users)) {
     var usrSheet = obtenerOCrearHoja(ss, SCHEMA.USUARIOS);
-    usrSheet.clearContents();
-    usrSheet.appendRow(SCHEMA.USUARIOS.headers);
-    formatearEncabezado(usrSheet, SCHEMA.USUARIOS.headers.length);
+    var usrHeaders = SCHEMA.USUARIOS.headers;
+    usrSheet.getRange(1, 1, 1, usrHeaders.length).setValues([usrHeaders]);
+    formatearEncabezado(usrSheet, usrHeaders.length);
     data.users.forEach(function(u) { guardarUsuario(ss, u); });
   }
+
   if (data.crmEvents && Array.isArray(data.crmEvents)) {
     var crmSheet = obtenerOCrearHoja(ss, SCHEMA.CRM);
-    crmSheet.clearContents();
-    crmSheet.appendRow(SCHEMA.CRM.headers);
-    formatearEncabezado(crmSheet, SCHEMA.CRM.headers.length);
+    var crmHeaders = SCHEMA.CRM.headers;
+    crmSheet.getRange(1, 1, 1, crmHeaders.length).setValues([crmHeaders]);
+    formatearEncabezado(crmSheet, crmHeaders.length);
     data.crmEvents.forEach(function(ev) { guardarEventoCRM(ss, ev); });
   }
-  depurarPestanaProcedimiento(ss);
+
+  // Sincronización oficial del Catálogo Quirúrgico (Procedimientos)
   var procsList = data.procedures || data.procedimientos || data.surgicalProcedures;
-  if (procsList && Array.isArray(procsList) && procsList.length > 0) {
-    var procSheet = obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS);
-    procSheet.clearContents();
-    procSheet.appendRow(SCHEMA.PROCEDIMIENTOS.headers);
-    formatearEncabezado(procSheet, SCHEMA.PROCEDIMIENTOS.headers.length);
-    var procRows = procsList.map(function(pr) {
-      return [
-        pr.code || pr.id || '',
-        pr.category || 'Facial',
-        pr.name || '',
-        Number(pr.basePrice) || 0,
-        pr.notes || ''
-      ];
-    });
-    asegurarDimensionesHoja(procSheet, 1 + procRows.length, SCHEMA.PROCEDIMIENTOS.headers.length);
-    procSheet.getRange(2, 1, procRows.length, procRows[0].length).setValues(procRows);
+  if (procsList && Array.isArray(procsList)) {
+    guardarTodosProcedimientos(ss, procsList);
   }
-  if (data.financingPlans && Array.isArray(data.financingPlans) && data.financingPlans.length > 0) {
-    var planSheet = obtenerOCrearHoja(ss, SCHEMA.PLANES);
-    planSheet.clearContents();
-    planSheet.appendRow(SCHEMA.PLANES.headers);
-    formatearEncabezado(planSheet, SCHEMA.PLANES.headers.length);
-    var planRows = data.financingPlans.map(function(pl) {
-      return [
-        pl.id,
-        pl.name || '',
-        Number(pl.months) || 6,
-        pl.frequency || 'Mensual',
-        Number(pl.installmentsCount) || 6,
-        Number(pl.interestRatePercent) || 0,
-        Number(pl.downPaymentPercent) || 20,
-        pl.isActive !== false ? 'TRUE' : 'FALSE'
-      ];
-    });
-    asegurarDimensionesHoja(planSheet, 1 + planRows.length, SCHEMA.PLANES.headers.length);
-    planSheet.getRange(2, 1, planRows.length, planRows[0].length).setValues(planRows);
+
+  if (data.financingPlans && Array.isArray(data.financingPlans)) {
+    guardarTodosPlanes(ss, data.financingPlans);
   }
-  return { status: 'ok', message: 'Sincronización masiva completada' };
+
+  return { status: 'ok', message: 'Sincronización masiva completada exitosamente' };
 }
 `;

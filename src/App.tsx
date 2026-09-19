@@ -702,6 +702,14 @@ export default function App() {
         if (result.payments.length > 0) setPayments(result.payments);
         if (result.refunds.length > 0) setRefunds(result.refunds);
         if (result.users && result.users.length > 0) setUsers(result.users);
+        if (result.procedures && result.procedures.length > 0) {
+          setProcedures(result.procedures);
+          saveLocalProcedures(result.procedures);
+        }
+        if (result.financingPlans && result.financingPlans.length > 0) {
+          setFinancingPlans(result.financingPlans);
+          saveLocalFinancingPlans(result.financingPlans);
+        }
 
         setSheetConfig((prev) => ({
           ...prev,
@@ -755,58 +763,13 @@ export default function App() {
         setCrmEvents(data.crmEvents);
       }
       if (data.procedures && Array.isArray(data.procedures) && data.procedures.length > 0) {
-        setProcedures((prev) => {
-          const remoteIds = new Set(data.procedures.map((p: SurgicalProcedure) => p.id));
-          const localOnly = prev.filter((p) => !remoteIds.has(p.id));
-          const merged = [...localOnly, ...data.procedures];
-          saveLocalProcedures(merged);
-          // Auto-sync missing procedures to Google Sheets in the background
-          if (localOnly.length > 0 && gasUrl) {
-            saveAllProceduresToGas(gasUrl, merged).catch(() => {
-              for (const p of localOnly) {
-                saveProcedureToGas(gasUrl, p).catch(console.warn);
-              }
-            });
-          }
-          return merged;
-        });
-      } else if (gasUrl) {
-        // If Google Sheets had 0 procedures, upload all local procedures
-        const localProcs = loadLocalProcedures();
-        if (localProcs.length > 0) {
-          saveAllProceduresToGas(gasUrl, localProcs).catch(() => {
-            for (const p of localProcs) {
-              saveProcedureToGas(gasUrl, p).catch(console.warn);
-            }
-          });
-        }
+        setProcedures(data.procedures);
+        saveLocalProcedures(data.procedures);
       }
 
       if (data.financingPlans && Array.isArray(data.financingPlans) && data.financingPlans.length > 0) {
-        setFinancingPlans((prev) => {
-          const remoteIds = new Set(data.financingPlans.map((p: FinancingPlan) => p.id));
-          const localOnly = prev.filter((p) => !remoteIds.has(p.id));
-          const merged = [...localOnly, ...data.financingPlans];
-          saveLocalFinancingPlans(merged);
-          // Auto-sync missing financing plans to Google Sheets in the background
-          if (localOnly.length > 0 && gasUrl) {
-            saveAllFinancingPlansToGas(gasUrl, merged).catch(() => {
-              for (const pl of localOnly) {
-                saveFinancingPlanToGas(gasUrl, pl).catch(console.warn);
-              }
-            });
-          }
-          return merged;
-        });
-      } else if (gasUrl) {
-        const localPlans = loadLocalFinancingPlans();
-        if (localPlans.length > 0) {
-          saveAllFinancingPlansToGas(gasUrl, localPlans).catch(() => {
-            for (const pl of localPlans) {
-              saveFinancingPlanToGas(gasUrl, pl).catch(console.warn);
-            }
-          });
-        }
+        setFinancingPlans(data.financingPlans);
+        saveLocalFinancingPlans(data.financingPlans);
       }
 
       const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
@@ -1308,8 +1271,6 @@ export default function App() {
         if (singleProcedure) {
           await saveProcedureToGas(gasUrl, singleProcedure, updatedProcedures);
           synced = true;
-          // Sincronizar el catálogo completo en segundo plano
-          saveAllProceduresToGas(gasUrl, updatedProcedures).catch(console.warn);
         } else {
           await saveAllProceduresToGas(gasUrl, updatedProcedures);
           synced = true;
@@ -1366,7 +1327,6 @@ export default function App() {
 
     if (gasUrl) {
       deleteProcedureFromGas(gasUrl, procedureId, updated).catch(console.warn);
-      saveAllProceduresToGas(gasUrl, updated).catch(console.warn);
     }
     if (token && sheetConfig.spreadsheetId) {
       deleteProcedureFromGoogleSheet(token, sheetConfig.spreadsheetId, procedureId).catch(console.warn);

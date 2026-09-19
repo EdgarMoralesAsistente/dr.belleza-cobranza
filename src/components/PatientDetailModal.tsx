@@ -277,6 +277,7 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
           {/* Action Shortcuts */}
           <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
               onClick={() => {
                 onClose();
                 onOpenWhatsApp(patient);
@@ -287,6 +288,7 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
               <span>Enviar WhatsApp</span>
             </button>
             <button
+              type="button"
               onClick={() => {
                 onClose();
                 onOpenNewPayment(patient.id);
@@ -297,6 +299,7 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
               <span>Registrar Abono</span>
             </button>
             <button
+              type="button"
               onClick={() => {
                 onClose();
                 onOpenNewRefund(patient.id);

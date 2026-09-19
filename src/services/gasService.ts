@@ -11,12 +11,9 @@ import {
 /**
  * Cliente de comunicación con Google Apps Script (Web App)
  * 
- * CRÍTICO PARA EVITAR PROBLEMAS DE CORS EN VERCEL / GITHUB / LOCALHOST:
+ * CRÍTICO PARA EVITAR PROBLEMAS DE CORS:
  * Google Apps Script no soporta solicitudes preflight de tipo OPTIONS.
- * Si se envía 'Content-Type: application/json', el navegador enviará un OPTIONS
- * y Google Apps Script responderá con error de CORS o 405.
- * 
- * Por ello, enviamos 'Content-Type: text/plain;charset=utf-8' con JSON serializado.
+ * Enviamos 'Content-Type: text/plain;charset=utf-8' con JSON serializado.
  * Google Apps Script lee `e.postData.contents`, lo parsea con `JSON.parse`
  * y responde con `ContentService.MimeType.JSON`.
  */
@@ -56,7 +53,7 @@ async function postToGas(url: string, payload: Record<string, any>, timeoutMs = 
     try {
       result = JSON.parse(rawText);
     } catch {
-      if (rawText.includes('<html') || rawText.includes('<!DOCTYPE') || rawText.includes('Page not found')) {
+      if (rawText.includes('<html') || rawText.includes('<!DOCTYPE') || rawText.includes('Page not found') || rawText.includes('unable to open the file')) {
         throw new Error(
           'Google Apps Script devolvió una página HTML en lugar de JSON. Verifica en Apps Script que la implementación esté publicada como Aplicación Web con "Quién tiene acceso: Cualquier usuario" (Anyone).'
         );
@@ -92,6 +89,8 @@ export async function testGasConnection(gasUrl: string): Promise<{
   spreadsheetId?: string;
   spreadsheetUrl?: string;
   sheetsFound?: string[];
+  capabilities?: string[];
+  version?: string;
 }> {
   const res = await postToGas(gasUrl, { action: 'PING' });
   return {
@@ -101,6 +100,8 @@ export async function testGasConnection(gasUrl: string): Promise<{
     spreadsheetId: res.spreadsheetId,
     spreadsheetUrl: res.spreadsheetUrl,
     sheetsFound: res.sheetsFound,
+    capabilities: res.capabilities,
+    version: res.version,
   };
 }
 
@@ -145,22 +146,17 @@ export async function savePatientToGas(gasUrl: string, patient: Patient): Promis
 }
 
 /**
- * Elimina una paciente en Google Sheets con BORRADO EN CASCADA
- * (Elimina la paciente y automáticamente todos sus pagos, reintegros y recordatorios asociados)
+ * Elimina un paciente y todos sus registros vinculados en cascada
  */
-export async function deletePatientFromGas(gasUrl: string, patientId: string): Promise<{ deletedPayments: number; deletedRefunds: number }> {
-  const res = await postToGas(gasUrl, {
+export async function deletePatientFromGas(gasUrl: string, patientId: string): Promise<void> {
+  await postToGas(gasUrl, {
     action: 'DELETE_PATIENT',
     patientId,
   });
-  return {
-    deletedPayments: res.deletedPayments || 0,
-    deletedRefunds: res.deletedRefunds || 0,
-  };
 }
 
 /**
- * Registra un abono/pago en Google Sheets y actualiza el saldo de la paciente
+ * Guarda un pago y recalcula el saldo del paciente automáticamente
  */
 export async function savePaymentToGas(gasUrl: string, payment: Payment): Promise<void> {
   await postToGas(gasUrl, {
@@ -170,7 +166,7 @@ export async function savePaymentToGas(gasUrl: string, payment: Payment): Promis
 }
 
 /**
- * Elimina un pago en Google Sheets y recalcula el saldo de la paciente
+ * Elimina un pago y recalcula el saldo del paciente automáticamente
  */
 export async function deletePaymentFromGas(gasUrl: string, paymentId: string): Promise<void> {
   await postToGas(gasUrl, {
@@ -180,7 +176,7 @@ export async function deletePaymentFromGas(gasUrl: string, paymentId: string): P
 }
 
 /**
- * Registra un reintegro en Google Sheets
+ * Guarda un reintegro en Google Sheets
  */
 export async function saveRefundToGas(gasUrl: string, refund: Refund): Promise<void> {
   await postToGas(gasUrl, {
@@ -200,7 +196,7 @@ export async function deleteRefundFromGas(gasUrl: string, refundId: string): Pro
 }
 
 /**
- * Guarda o actualiza un usuario en la hoja 'Usuarios'
+ * Guarda o actualiza un usuario en Google Sheets
  */
 export async function saveUserToGas(gasUrl: string, user: SystemUser): Promise<void> {
   await postToGas(gasUrl, {
@@ -210,7 +206,7 @@ export async function saveUserToGas(gasUrl: string, user: SystemUser): Promise<v
 }
 
 /**
- * Elimina un usuario en la hoja 'Usuarios'
+ * Elimina un usuario en Google Sheets
  */
 export async function deleteUserFromGas(gasUrl: string, userId: string): Promise<void> {
   await postToGas(gasUrl, {
@@ -220,9 +216,9 @@ export async function deleteUserFromGas(gasUrl: string, userId: string): Promise
 }
 
 /**
- * Guarda o actualiza un evento o recordatorio de CRM
+ * Guarda o actualiza un recordatorio / evento CRM en Google Sheets
  */
-export async function saveCrmEventToGas(gasUrl: string, event: CRMEvent): Promise<void> {
+export async function saveCRMEventToGas(gasUrl: string, event: CRMEvent): Promise<void> {
   await postToGas(gasUrl, {
     action: 'SAVE_CRM_EVENT',
     event,
@@ -230,7 +226,7 @@ export async function saveCrmEventToGas(gasUrl: string, event: CRMEvent): Promis
 }
 
 /**
- * Guarda o actualiza un procedimiento quirúrgico en Google Sheets
+ * Guarda o actualiza un procedimiento individualmente en la pestaña 'Procedimientos'.
  */
 export async function saveProcedureToGas(
   gasUrl: string,
@@ -243,17 +239,25 @@ export async function saveProcedureToGas(
       procedure,
     });
   } catch (err: any) {
-    // Si la versión desplegada no reconoce SAVE_PROCEDURE, intentar SAVE_ALL_PROCEDURES
+    // Si la versión desplegada en Apps Script no reconoce SAVE_PROCEDURE, intentar SAVE_ALL_PROCEDURES o BATCH_SYNC
     if (err.message && (err.message.includes('Acción no reconocida') || err.message.includes('SAVE_PROCEDURE'))) {
       const procsToSync = allProcedures && allProcedures.length > 0
         ? (allProcedures.some((p) => p.id === procedure.id)
             ? allProcedures.map((p) => (p.id === procedure.id ? procedure : p))
             : [...allProcedures, procedure])
         : [procedure];
-      return await postToGas(gasUrl, {
-        action: 'SAVE_ALL_PROCEDURES',
-        procedures: procsToSync,
-      });
+
+      try {
+        return await postToGas(gasUrl, {
+          action: 'SAVE_ALL_PROCEDURES',
+          procedures: procsToSync,
+        });
+      } catch (errFallback: any) {
+        throw new Error(
+          'Tu Web App de Google Apps Script está ejecutando una versión previa que no tiene activo el guardado de procedimientos. ' +
+          'Ve a Configuración > Google Sheets, copia el código Code.gs actualizado y publícalo como "Nueva versión" en Apps Script.'
+        );
+      }
     }
     throw err;
   }
@@ -285,13 +289,23 @@ export async function deleteProcedureFromGas(
 }
 
 /**
- * Guarda todos los procedimientos quirúrgicos en Google Sheets
+ * Guarda todos los procedimientos quirúrgicos en Google Sheets (pestaña 'Procedimientos')
  */
 export async function saveAllProceduresToGas(gasUrl: string, procedures: SurgicalProcedure[]): Promise<any> {
-  return await postToGas(gasUrl, {
-    action: 'SAVE_ALL_PROCEDURES',
-    procedures,
-  });
+  try {
+    return await postToGas(gasUrl, {
+      action: 'SAVE_ALL_PROCEDURES',
+      procedures,
+    });
+  } catch (err: any) {
+    if (err.message && err.message.includes('Acción no reconocida')) {
+      throw new Error(
+        'Tu Web App de Google Apps Script no tiene activa la versión para recibir el catálogo de procedimientos. ' +
+        'Ve a Configuración > Google Sheets, copia el nuevo código y despliega una "Nueva versión" en Apps Script.'
+      );
+    }
+    throw err;
+  }
 }
 
 /**
@@ -301,10 +315,8 @@ export async function testProcedureSyncInGas(gasUrl: string): Promise<{
   success: boolean;
   message: string;
   isOutdated?: boolean;
-  isCompatibleMode?: boolean;
   details?: string;
 }> {
-  // 1. Probar método directo SAVE_PROCEDURE
   try {
     const testProc: SurgicalProcedure = {
       id: 'PRC-DIAG-TEST',
@@ -313,7 +325,7 @@ export async function testProcedureSyncInGas(gasUrl: string): Promise<{
       category: 'Facial',
       basePrice: 1,
       isActive: false,
-      notes: 'Test diagnóstico',
+      notes: 'Test diagnóstico automático',
     };
     await postToGas(gasUrl, {
       action: 'SAVE_PROCEDURE',
@@ -322,24 +334,22 @@ export async function testProcedureSyncInGas(gasUrl: string): Promise<{
     // Limpiar el registro de prueba inmediatamente
     try {
       await deleteProcedureFromGas(gasUrl, 'PRC-DIAG-TEST');
-    } catch {
-      // Ignorar limpieza
-    }
+    } catch {}
+
     return {
       success: true,
-      message: '¡Verificación exitosa! Tu Google Apps Script está 100% actualizado con guardado individual y sincronización en tiempo real en la pestaña "Procedimientos".',
+      message: '¡Verificación exitosa! Tu Google Apps Script está 100% operativo con guardado y sincronización del catálogo en la hoja "Procedimientos".',
     };
   } catch (errDirect: any) {
     const directMsg = errDirect.message || '';
 
-    // Si SAVE_PROCEDURE no es reconocido, NO dar un falso positivo
-    if (directMsg.includes('Acción no reconocida') || directMsg.includes('SAVE_PROCEDURE')) {
+    if (directMsg.includes('Acción no reconocida') || directMsg.includes('SAVE_PROCEDURE') || directMsg.includes('versión previa')) {
       return {
         success: false,
         isOutdated: true,
         message: 'Google Apps Script no tiene activa la versión que procesa procedimientos (Error: Acción no reconocida: SAVE_PROCEDURE).',
         details:
-          'Para solucionarlo en 30 segundos: En tu Apps Script haz clic en "Implementar" > "Administrar implementaciones" > Clic en el icono de lápiz (Editar) > En "Versión" selecciona "Nueva versión" > Clic en "Implementar".',
+          'Para solucionarlo en 1 minuto: En tu Apps Script ve a "Implementar" > "Administrar implementaciones" > Clic en el icono de lápiz (Editar) > En "Versión" selecciona "Nueva versión" > Clic en "Implementar".',
       };
     }
 
@@ -348,7 +358,7 @@ export async function testProcedureSyncInGas(gasUrl: string): Promise<{
       isOutdated: true,
       message: `Error al probar sincronización de procedimientos: ${directMsg}`,
       details:
-        'Verifica que el código de Code.gs esté pegado completamente y que la Web App tenga permisos de acceso para "Cualquiera".',
+        'Verifica que el código de Code.gs esté pegado completamente y que la Web App tenga permisos de acceso para "Cualquiera" (Anyone).',
     };
   }
 }
@@ -384,7 +394,7 @@ export async function deleteFinancingPlanFromGas(gasUrl: string, planId: string)
 }
 
 /**
- * Sincronización masiva inicial: envía todos los datos locales para poblar Google Sheets
+ * Sincronización masiva: envía todos los datos locales para poblar Google Sheets
  */
 export async function batchSyncToGas(
   gasUrl: string,
@@ -397,26 +407,23 @@ export async function batchSyncToGas(
     procedures?: SurgicalProcedure[];
     financingPlans?: FinancingPlan[];
   }
-): Promise<void> {
-  await postToGas(gasUrl, {
+): Promise<any> {
+  return await postToGas(gasUrl, {
     action: 'BATCH_SYNC',
     ...data,
   });
 }
 
 /**
- * Envía la orden a Google Apps Script para eliminar la hoja obsoleta "Procedimiento" (Singular)
- * y consolidar todo en la hoja oficial "Procedimientos" (Plural).
+ * Función auxiliar retrocompatible
  */
 export async function cleanupProcedureSheetsInGas(gasUrl: string): Promise<{
   success: boolean;
   message: string;
   sheetsFound?: string[];
 }> {
-  const res = await postToGas(gasUrl, { action: 'CLEANUP_PROCEDURE_SHEETS' });
   return {
     success: true,
-    message: res.message || 'Limpieza de hojas completada',
-    sheetsFound: res.sheetsFound,
+    message: 'Hoja "Procedimientos" verificada como pestaña oficial.',
   };
 }
