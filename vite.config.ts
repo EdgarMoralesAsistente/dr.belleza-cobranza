@@ -5,22 +5,27 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const DEFAULT_SHEETS_URL =
-    'https://script.google.com/macros/s/AKfycbzknrMLSmdcZe2HUQIQ6nAJXzw_TA_QSiKj-Hgb-s0YvvBHbronT25t_TzDqcoZ5rOoCw/exec';
-
-  const sheetsUrl =
-    env.VITE_GOOGLE_SHEETS_WEBHOOK_URL ||
-    env.GOOGLE_SHEETS_WEBHOOK_URL ||
-    process.env.VITE_GOOGLE_SHEETS_WEBHOOK_URL ||
-    process.env.GOOGLE_SHEETS_WEBHOOK_URL ||
-    DEFAULT_SHEETS_URL;
+  const gasUrl =
+    env.GOOGLE_APPS_SCRIPT_URL ||
+    env.GAS_URL ||
+    env.GOOGLE_SHEETS_URL ||
+    env.SHEETS_URL ||
+    process.env.GOOGLE_APPS_SCRIPT_URL ||
+    process.env.GAS_URL ||
+    process.env.GOOGLE_SHEETS_URL ||
+    process.env.SHEETS_URL ||
+    process.env.VITE_GOOGLE_APPS_SCRIPT_URL ||
+    env.VITE_GOOGLE_APPS_SCRIPT_URL ||
+    '';
 
   return {
     plugins: [react(), tailwindcss()],
+    envPrefix: ['VITE_', 'GOOGLE_', 'GAS_', 'SHEETS_'],
     define: {
-      'import.meta.env.VITE_GOOGLE_SHEETS_WEBHOOK_URL': JSON.stringify(sheetsUrl),
-      'process.env.GOOGLE_SHEETS_WEBHOOK_URL': JSON.stringify(sheetsUrl),
-      'process.env.VITE_GOOGLE_SHEETS_WEBHOOK_URL': JSON.stringify(sheetsUrl),
+      'import.meta.env.GOOGLE_APPS_SCRIPT_URL': JSON.stringify(gasUrl),
+      'import.meta.env.GAS_URL': JSON.stringify(gasUrl),
+      'import.meta.env.VITE_GOOGLE_APPS_SCRIPT_URL': JSON.stringify(gasUrl),
+      'process.env.GOOGLE_APPS_SCRIPT_URL': JSON.stringify(gasUrl),
     },
     resolve: {
       alias: {
