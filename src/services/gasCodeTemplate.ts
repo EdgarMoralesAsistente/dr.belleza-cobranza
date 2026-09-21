@@ -165,7 +165,7 @@ function sembrarDatosIniciales(ss) {
       ['PRC-001', 'QX-RINO', 'Rinoplastia Ultrasónica Estructural', 'Facial', 3200, 180, 'SI', 65, 'Activo', 'Incluye tomografía postoperatoria y yeso'],
       ['PRC-002', 'QX-LIPO', 'Lipoescultura HD con Marcación', 'Corporal', 4500, 210, 'SI', 60, 'Activo', 'Incluye faja y drenajes linfáticos'],
       ['PRC-003', 'QX-MAMA', 'Mamoplastia de Aumento Dual-Plane', 'Corporal', 3800, 150, 'SI', 60, 'Activo', 'Implantes Mentor / Motiva microtexturados'],
-      ['PRC-004', 'EST-BOTOX', 'Toxina Botulínica Full Face (Botox)', 'Medicina Estética', 350, 45, 'NO', 50, 'Activo', 'Frente, entrecejo y patas de gallo'],
+      ['PRC-004', 'EST-BOTOX', 'Toxina Botulínica Full Face (Botox)', 'Extra', 350, 45, 'NO', 50, 'Activo', 'Frente, entrecejo y patas de gallo'],
       ['PRC-5348', 'ABD-481', 'Abdominoplastia', 'Corporal', 3800, 90, 'SI', 65, 'Activo', 'Plicatura y remodelación'],
       ['PRC-9615', 'ML-422', 'MELA', 'Corporal', 2400, 90, 'SI', 65, 'Activo', 'Miniextracción lipídica ambulatoria'],
       ['PRC-1028', 'LG-258', 'Lipoinyección Glútea', 'Corporal', 500, 90, 'SI', 65, 'Activo', 'Lipotransferencia glútea']

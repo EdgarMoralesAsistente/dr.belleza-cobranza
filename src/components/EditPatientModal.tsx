@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Check,
   Percent,
+  Clock,
 } from 'lucide-react';
 import { Patient, SurgicalProcedure } from '../types';
 
@@ -47,6 +48,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
   const [couponDiscount, setCouponDiscount] = useState<number | ''>('');
   const [status, setStatus] = useState<'pending' | 'paid' | 'overdue'>('pending');
   const [nextPaymentDate, setNextPaymentDate] = useState('');
+  const [financingDeferralDays, setFinancingDeferralDays] = useState<number>(0);
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
@@ -67,6 +69,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
       setCouponDiscount(patient.couponDiscount ?? '');
       setStatus(patient.status || 'pending');
       setNextPaymentDate(patient.nextPaymentDate || '');
+      setFinancingDeferralDays(patient.financingDeferralDays || 0);
       setNotes(patient.notes || '');
     }
   }, [patient, isOpen]);
@@ -105,6 +108,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
       balance: calculatedBalance,
       status: calculatedBalance === 0 ? 'paid' : status,
       nextPaymentDate: nextPaymentDate || undefined,
+      financingDeferralDays: financingDeferralDays > 0 ? financingDeferralDays : undefined,
       notes: notes.trim() || undefined,
       originalSubtotal: numSubtotal,
       discountPercent: numDiscPct,
@@ -491,6 +495,48 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
                   onChange={(e) => setNextPaymentDate(e.target.value)}
                   className="w-full py-2 px-3 rounded-lg bg-slate-50 border border-slate-300 text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                 />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-medium text-slate-700 flex items-center space-x-1">
+                    <Clock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Diferimiento 1ª Cuota (días)</span>
+                  </label>
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                    Máx 60d (2 meses)
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="60"
+                    value={financingDeferralDays}
+                    onChange={(e) =>
+                      setFinancingDeferralDays(
+                        Math.max(0, Math.min(60, Number(e.target.value) || 0))
+                      )
+                    }
+                    className="w-full py-2 px-3 rounded-lg bg-slate-50 border border-slate-300 font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                  />
+                  <div className="flex items-center space-x-1 shrink-0">
+                    {[0, 15, 30, 60].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setFinancingDeferralDays(d)}
+                        className={`px-2 py-1 text-[11px] font-bold rounded border cursor-pointer ${
+                          financingDeferralDays === d
+                            ? 'bg-amber-600 text-white border-amber-600'
+                            : 'bg-white hover:bg-amber-50 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {d}d
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

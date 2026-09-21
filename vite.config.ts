@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
     process.env.SHEETS_URL ||
     process.env.VITE_GOOGLE_APPS_SCRIPT_URL ||
     env.VITE_GOOGLE_APPS_SCRIPT_URL ||
-    '';
+    'https://script.google.com/macros/s/AKfycbxwr5X__7RdF8M1ytVUs4RWEuiLyIIHMWHOsh3tFgoPe3xveKgJ6ydTw61H_owOkilGzg/exec';
 
   return {
     plugins: [react(), tailwindcss()],

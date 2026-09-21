@@ -213,6 +213,14 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
                         <span>• {patient.financingInstallmentsCount} cuotas pactadas</span>
                       )}
                     </div>
+                    {patient.financingDeferralDays && patient.financingDeferralDays > 0 && (
+                      <div className="mt-1.5 flex items-center">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200">
+                          <Clock className="w-3 h-3 mr-1 text-amber-600" />
+                          Diferimiento 1ª cuota: {patient.financingDeferralDays} días ({Math.round(patient.financingDeferralDays / 30) === 1 ? '1 mes de gracia' : `${Math.round(patient.financingDeferralDays / 30)} meses de gracia`})
+                        </span>
+                      </div>
+                    )}
                   </div>
                   {patient.financingInstallmentAmount && (
                     <div className="text-right">

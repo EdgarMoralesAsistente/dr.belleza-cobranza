@@ -153,6 +153,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
   });
   const [initialPaymentMethod, setInitialPaymentMethod] = useState<PaymentMethod>('Transferencia');
   const [initialPaymentRef, setInitialPaymentRef] = useState('');
+  const [deferralDays, setDeferralDays] = useState<number>(0);
   const [firstPaymentDate, setFirstPaymentDate] = useState<string>(() => {
     return getDefaultFirstDate('Quincenal');
   });
@@ -353,6 +354,28 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     }
   }, [filteredFinancingCatalog, selectedFinancingPlanId]);
 
+  // Cálculo de fecha de la 1ª cuota según frecuencia y días de diferimiento (0 a 60 días / hasta 2 meses)
+  const calculateFirstPaymentDateWithDeferral = (
+    freq: 'Semanal' | 'Quincenal' | 'Mensual' = 'Quincenal',
+    deferralDaysCount: number = 0
+  ) => {
+    const d = new Date();
+    const baseDays = freq === 'Semanal' ? 7 : freq === 'Quincenal' ? 15 : 30;
+    d.setDate(d.getDate() + baseDays + Math.max(0, Math.min(60, deferralDaysCount)));
+    return d.toISOString().split('T')[0];
+  };
+
+  const handleDeferralDaysChange = (newDays: number) => {
+    const clamped = Math.max(0, Math.min(60, Math.round(newDays) || 0));
+    setDeferralDays(clamped);
+    const newDate = calculateFirstPaymentDateWithDeferral(
+      selectedFinancingPlan?.frequency || 'Quincenal',
+      clamped
+    );
+    setFirstPaymentDate(newDate);
+    setCustomInstallmentDates({});
+  };
+
   // Quick preset button for starting date of schedule
   const handleQuickStartDate = (
     type: '7days' | '15days' | '30days' | 'nextMonth1st' | 'nextMonth15th'
@@ -510,6 +533,9 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
         combinedTotalDiscount > 0
           ? `Beneficio/Descuento: ${discountPercent ? `${discountPercent}% comercial (-$${percentDiscountAmount})` : ''} ${selectedCouponCode ? `+ Cupón ${selectedCouponCode} (-$${couponDiscountAmount})` : ''}. Total ahorrado: -$${combinedTotalDiscount} USD sobre subtotal original de $${calculatedSum} USD.`
           : '',
+        deferralDays > 0
+          ? `Diferimiento de 1ª Cuota concedido: ${deferralDays} días de aplazamiento (1er vencimiento acordado: ${calculatedFirstDueDate || firstPaymentDate}).`
+          : '',
       ]
         .filter(Boolean)
         .join(' • '),
@@ -525,6 +551,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
       financingFrequency: selectedFinancingPlan?.frequency,
       financingInstallmentsCount: selectedFinancingPlan?.installmentsCount,
       financingInstallmentAmount: financingCalculations?.installmentAmount,
+      financingDeferralDays: deferralDays > 0 ? deferralDays : undefined,
       paymentSchedule: fullPaymentSchedule.map((p) => ({
         installmentNumber: p.installmentNumber,
         dueDate: p.dueDate,
@@ -743,7 +770,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
 
               {/* Category Pills */}
               <div className="flex items-center space-x-1 overflow-x-auto pb-1 sm:pb-0">
-                {['all', 'Facial', 'Corporal', 'Medicina Estética'].map((cat) => (
+                {['all', 'Facial', 'Corporal', 'Extra'].map((cat) => (
                   <button
                     key={cat}
                     type="button"
@@ -796,7 +823,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                                   ? 'bg-blue-50 text-blue-700 border border-blue-200'
                                   : proc.category === 'Corporal'
                                   ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
                               }`}
                             >
                               {proc.category}
@@ -1180,50 +1207,249 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-800">
+                {/* Cabecera de Abono Inicial con badges informativos */}
+                <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1">
+                  <label className="block text-xs font-bold text-slate-800 flex items-center">
+                    <DollarSign className="w-3.5 h-3.5 mr-1 text-emerald-600" />
                     Abono Inicial ($)
                   </label>
-                  {selectedFinancingPlan && selectedFinancingPlan.downPaymentPercent > 0 && (
-                    <span className="text-[10px] text-emerald-800 font-bold bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-300">
-                      {selectedFinancingPlan.downPaymentPercent}% del plan (${financingCalculations?.suggestedDown.toLocaleString('es-AR')} USD)
-                    </span>
-                  )}
+                  <div className="flex items-center space-x-1.5">
+                    {selectedFinancingPlan && selectedFinancingPlan.downPaymentPercent > 0 && (
+                      <span className="text-[10px] text-emerald-800 font-bold bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-300">
+                        {selectedFinancingPlan.downPaymentPercent}% del plan (${financingCalculations?.suggestedDown.toLocaleString('es-AR')} USD)
+                      </span>
+                    )}
+                    {Number(totalCost) > 0 && Number(initialPaymentAmount) > 0 && (
+                      <span className="text-[10px] text-blue-800 font-bold bg-blue-100/80 px-1.5 py-0.5 rounded border border-blue-200">
+                        {Math.min(100, Math.round(((Number(initialPaymentAmount) || 0) / Number(totalCost)) * 100))}% del total
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="0.00 (Primer abono entregado)"
-                  value={initialPaymentAmount}
-                  onChange={(e) => {
-                    setIsManualInitialPayment(true);
-                    setInitialPaymentAmount(
-                      e.target.value === '' ? '' : Number(e.target.value)
-                    );
-                  }}
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/20 font-bold"
-                />
-                <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
-                  <span>
-                    {isManualInitialPayment
-                      ? 'Monto personalizado manualmente'
-                      : `Calculado en función del ${selectedFinancingPlan?.downPaymentPercent || 0}% de este plan`}
+
+                {/* Input de Abono Inicial */}
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                    $
                   </span>
-                  {isManualInitialPayment && selectedFinancingPlan && selectedFinancingPlan.downPaymentPercent > 0 && (
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="0.00 (Primer abono entregado)"
+                    value={initialPaymentAmount}
+                    onChange={(e) => {
+                      setIsManualInitialPayment(true);
+                      setInitialPaymentAmount(
+                        e.target.value === '' ? '' : Math.max(0, Number(e.target.value))
+                      );
+                    }}
+                    className="w-full pl-7 pr-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#25D366]/20 font-bold text-slate-900"
+                  />
+                </div>
+
+                {/* Ajustes Rápidos del Abono Inicial: % y montos */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
+                    <span>Ajuste rápido de abono:</span>
+                    {isManualInitialPayment && selectedFinancingPlan && selectedFinancingPlan.downPaymentPercent > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsManualInitialPayment(false);
+                          if (financingCalculations) {
+                            setInitialPaymentAmount(financingCalculations.suggestedDown);
+                          }
+                        }}
+                        className="text-emerald-700 hover:text-emerald-900 font-semibold underline cursor-pointer"
+                      >
+                        Restablecer al {selectedFinancingPlan.downPaymentPercent}% (${financingCalculations?.suggestedDown.toLocaleString()} USD)
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1">
                     <button
                       type="button"
                       onClick={() => {
-                        setIsManualInitialPayment(false);
-                        if (financingCalculations) {
-                          setInitialPaymentAmount(financingCalculations.suggestedDown);
-                        }
+                        setIsManualInitialPayment(true);
+                        setInitialPaymentAmount(0);
                       }}
-                      className="text-emerald-700 hover:text-emerald-900 font-semibold underline cursor-pointer"
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
+                        Number(initialPaymentAmount) === 0
+                          ? 'bg-slate-800 text-white border-slate-800'
+                          : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
+                      }`}
                     >
-                      Restablecer al {selectedFinancingPlan.downPaymentPercent}% (${financingCalculations?.suggestedDown.toLocaleString()} USD)
+                      $0 (Sin abono)
                     </button>
-                  )}
+                    {[10, 20, 30, 50].map((pct) => {
+                      const cost = Number(totalCost) || 0;
+                      const targetAmt = Math.round((cost * pct) / 100);
+                      const isCurrent = Number(initialPaymentAmount) === targetAmt && targetAmt > 0;
+                      return (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => {
+                            setIsManualInitialPayment(true);
+                            setInitialPaymentAmount(targetAmt);
+                          }}
+                          className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
+                            isCurrent
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                          }`}
+                        >
+                          {pct}% (${targetAmt.toLocaleString('es-AR')})
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Incrementos rápidos */}
+                  <div className="flex items-center gap-1 text-[10px]">
+                    <span className="text-slate-400 font-medium">Incrementar:</span>
+                    {[-500, -100, 100, 500].map((step) => (
+                      <button
+                        key={step}
+                        type="button"
+                        onClick={() => {
+                          setIsManualInitialPayment(true);
+                          const current = Number(initialPaymentAmount) || 0;
+                          const nextVal = Math.max(0, current + step);
+                          setInitialPaymentAmount(nextVal);
+                        }}
+                        className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold border border-slate-200 cursor-pointer"
+                      >
+                        {step > 0 ? `+$${step}` : `-$${Math.abs(step)}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* DIFERIMIENTO / APLAZAMIENTO DE 1ª CUOTA (HASTA 2 MESES / 60 DÍAS) */}
+                <div className="mt-3 p-3 bg-amber-50/70 border border-amber-200/90 rounded-xl space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <div className="flex items-center space-x-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-700" />
+                      <label className="text-xs font-bold text-slate-800">
+                        Diferimiento / Aplazamiento de 1ª Cuota
+                      </label>
+                    </div>
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300 self-start sm:self-auto">
+                      Hasta 2 meses (60 días)
+                    </span>
+                  </div>
+
+                  {/* Selector de Cantidad de Días */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] text-slate-700 font-medium">
+                      Selector de Cantidad:
+                    </span>
+                    <div className="flex items-center bg-white rounded-lg border border-slate-300 shadow-2xs p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleDeferralDaysChange(deferralDays - 5)}
+                        disabled={deferralDays <= 0}
+                        className="px-2 py-1 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        title="Restar 5 días"
+                      >
+                        -5d
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeferralDaysChange(deferralDays - 1)}
+                        disabled={deferralDays <= 0}
+                        className="px-1.5 py-1 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        title="Restar 1 día"
+                      >
+                        -1d
+                      </button>
+
+                      <div className="flex items-center px-2">
+                        <input
+                          type="number"
+                          min="0"
+                          max="60"
+                          value={deferralDays}
+                          onChange={(e) => handleDeferralDaysChange(Number(e.target.value))}
+                          className="w-12 text-center text-xs font-extrabold text-slate-900 border-0 focus:ring-0 p-0"
+                        />
+                        <span className="text-[11px] font-bold text-slate-500 ml-0.5">
+                          días
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeferralDaysChange(deferralDays + 1)}
+                        disabled={deferralDays >= 60}
+                        className="px-1.5 py-1 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        title="Sumar 1 día"
+                      >
+                        +1d
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeferralDaysChange(deferralDays + 5)}
+                        disabled={deferralDays >= 60}
+                        className="px-2 py-1 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        title="Sumar 5 días"
+                      >
+                        +5d
+                      </button>
+                    </div>
+
+                    {/* Presets rápidos */}
+                    <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                      {[
+                        { label: '0 d (Normal)', days: 0 },
+                        { label: '15 días', days: 15 },
+                        { label: '30 días (1 mes)', days: 30 },
+                        { label: '45 días', days: 45 },
+                        { label: '60 días (2 meses)', days: 60 },
+                      ].map((item) => (
+                        <button
+                          key={item.days}
+                          type="button"
+                          onClick={() => handleDeferralDaysChange(item.days)}
+                          className={`px-2 py-0.5 rounded font-bold border transition-colors cursor-pointer ${
+                            deferralDays === item.days
+                              ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                              : 'bg-white hover:bg-amber-100/60 text-slate-700 border-amber-200'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Impacto en fechas y CRM */}
+                  <div className="p-2 bg-white rounded-lg border border-amber-200 text-[11px] space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-1 font-semibold">
+                      <span className="text-slate-700 flex items-center">
+                        <CalendarClock className="w-3.5 h-3.5 mr-1 text-amber-600" />
+                        Fecha calculada para la 1ª cuota:
+                      </span>
+                      <span className="font-extrabold text-amber-950 bg-amber-100 px-2 py-0.5 rounded">
+                        {formatDisplayDate(firstPaymentDate)}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                      {deferralDays > 0 ? (
+                        <>
+                          <strong className="text-amber-800">
+                            Aplazamiento de {deferralDays} días activado ({Math.round(deferralDays / 30) === 1 ? '1 mes' : `${Math.round(deferralDays / 30)} meses`}).
+                          </strong>{' '}
+                          Este dato recalcula el cronograma de cuotas y programa las alarmas y recordatorios automáticos de cobro en el CRM a partir de esta fecha.
+                        </>
+                      ) : (
+                        'Sin diferimiento. La 1ª cuota se cobrará en la fecha habitual según la periodicidad del plan.'
+                      )}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

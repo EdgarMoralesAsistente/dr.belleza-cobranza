@@ -556,16 +556,21 @@ export function saveLocalRefunds(refunds: Refund[]): void {
 }
 
 export const DEFAULT_GAS_URL =
-  'https://script.google.com/macros/s/AKfycbx6ca4jfxraaRb0GnfwKSTpMshf56XuQ8WLsvVYj5kKKPiTBSZIuO4laddN_BUVf6dabg/exec';
+  'https://script.google.com/macros/s/AKfycbxwr5X__7RdF8M1ytVUs4RWEuiLyIIHMWHOsh3tFgoPe3xveKgJ6ydTw61H_owOkilGzg/exec';
+
+// URLs de versiones anteriores de Apps Script que deben migrarse automáticamente a la versión actual
+export const LEGACY_GAS_URLS = [
+  'https://script.google.com/macros/s/AKfycbx6ca4jfxraaRb0GnfwKSTpMshf56XuQ8WLsvVYj5kKKPiTBSZIuO4laddN_BUVf6dabg/exec',
+];
 
 export function getEffectiveGasUrl(): string | null {
   const envUrl =
     (import.meta as any).env?.GOOGLE_APPS_SCRIPT_URL ||
+    (import.meta as any).env?.VITE_GOOGLE_APPS_SCRIPT_URL ||
     (import.meta as any).env?.GAS_URL ||
     (import.meta as any).env?.GOOGLE_SHEETS_URL ||
     (import.meta as any).env?.SHEETS_URL ||
-    (typeof process !== 'undefined' && (process.env?.GOOGLE_APPS_SCRIPT_URL || process.env?.GAS_URL || process.env?.GOOGLE_SHEETS_URL)) ||
-    (import.meta as any).env?.VITE_GOOGLE_APPS_SCRIPT_URL;
+    (typeof process !== 'undefined' && (process.env?.GOOGLE_APPS_SCRIPT_URL || process.env?.VITE_GOOGLE_APPS_SCRIPT_URL || process.env?.GAS_URL || process.env?.GOOGLE_SHEETS_URL));
   if (typeof envUrl === 'string' && envUrl.trim().startsWith('https://script.google.com/')) {
     return envUrl.trim();
   }
@@ -574,7 +579,14 @@ export function getEffectiveGasUrl(): string | null {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (typeof parsed?.gasDeploymentUrl === 'string' && parsed.gasDeploymentUrl.trim().startsWith('https://script.google.com/')) {
-        return parsed.gasDeploymentUrl.trim();
+        const url = parsed.gasDeploymentUrl.trim();
+        // Si el usuario tenía en caché una versión obsoleta anterior, migrarla a la versión actual
+        if (LEGACY_GAS_URLS.includes(url) || url.includes('AKfycbx6ca4jfxraa')) {
+          parsed.gasDeploymentUrl = DEFAULT_GAS_URL;
+          localStorage.setItem(STORAGE_KEYS.SHEET_CONFIG, JSON.stringify(parsed));
+          return DEFAULT_GAS_URL;
+        }
+        return url;
       }
     }
   } catch {}
@@ -587,8 +599,14 @@ export function loadGoogleSheetConfig(): GoogleSheetConfig {
     const saved = localStorage.getItem(STORAGE_KEYS.SHEET_CONFIG);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (!parsed.gasDeploymentUrl || !parsed.gasDeploymentUrl.trim().startsWith('https://script.google.com/')) {
+      if (
+        !parsed.gasDeploymentUrl ||
+        !parsed.gasDeploymentUrl.trim().startsWith('https://script.google.com/') ||
+        LEGACY_GAS_URLS.includes(parsed.gasDeploymentUrl.trim()) ||
+        parsed.gasDeploymentUrl.includes('AKfycbx6ca4jfxraa')
+      ) {
         parsed.gasDeploymentUrl = envGasUrl;
+        localStorage.setItem(STORAGE_KEYS.SHEET_CONFIG, JSON.stringify(parsed));
       }
       if (!parsed.syncMode) {
         parsed.syncMode = parsed.gasDeploymentUrl ? 'apps_script' : 'direct_oauth';
@@ -599,9 +617,9 @@ export function loadGoogleSheetConfig(): GoogleSheetConfig {
     console.error('Error loading sheet config from localStorage', e);
   }
   return {
-    spreadsheetId: null,
-    spreadsheetUrl: null,
-    spreadsheetName: 'Dr. Belleza - Cobranza (Dr. Jorge Apelencia)',
+    spreadsheetId: '1KSOBEjOSYxH7qluhMB9fmcbLaol0_QpOd9lBv9Ks8M4',
+    spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/1KSOBEjOSYxH7qluhMB9fmcbLaol0_QpOd9lBv9Ks8M4/edit',
+    spreadsheetName: 'Dr. Belleza - Cobranza & Gestión',
     gasDeploymentUrl: envGasUrl,
     syncMode: 'apps_script',
     lastSyncTime: null,
@@ -707,7 +725,7 @@ export const INITIAL_PROCEDURES: SurgicalProcedure[] = [
     id: 'PRC-008',
     code: 'ME-ARMONIZ',
     name: 'Armonización Facial (Bótox + Rellenos)',
-    category: 'Medicina Estética',
+    category: 'Extra',
     basePrice: 850,
     durationMinutes: 60,
     requiresOR: false,
@@ -719,7 +737,7 @@ export const INITIAL_PROCEDURES: SurgicalProcedure[] = [
     id: 'PRC-009',
     code: 'ME-LABIOS',
     name: 'Relleno de Labios con Ácido Hialurónico',
-    category: 'Medicina Estética',
+    category: 'Extra',
     basePrice: 350,
     durationMinutes: 30,
     requiresOR: false,
@@ -731,7 +749,7 @@ export const INITIAL_PROCEDURES: SurgicalProcedure[] = [
     id: 'PRC-010',
     code: 'ME-BOTOX',
     name: 'Toxina Botulínica Zona Completa',
-    category: 'Medicina Estética',
+    category: 'Extra',
     basePrice: 320,
     durationMinutes: 30,
     requiresOR: false,
@@ -1247,12 +1265,15 @@ export function generatePatientCRMEvents(
 
   // 4. Notificaciones de Cobro y Vencimientos de Cuotas
   if (patient.paymentSchedule && patient.paymentSchedule.length > 0) {
+    const hasDeferral = Boolean(patient.financingDeferralDays && patient.financingDeferralDays > 0);
+
     patient.paymentSchedule.forEach((installment) => {
       // Recordatorio previo (2 días antes de dueDate)
       const dueObj = new Date(installment.dueDate);
       const reminderObj = new Date(dueObj);
       reminderObj.setDate(reminderObj.getDate() - 2);
       const reminderDateStr = reminderObj.toISOString().split('T')[0];
+      const isFirstWithDeferral = installment.installmentNumber === 1 && hasDeferral;
 
       // A) Notificación preventiva de cobro
       events.push({
@@ -1261,12 +1282,16 @@ export function generatePatientCRMEvents(
         patientName: patient.fullName,
         patientPhone: patient.phone,
         type: 'notificacion_cobro',
-        title: `Aviso Previo: Cuota #${installment.installmentNumber}/${patient.paymentSchedule!.length} ($${installment.amount.toLocaleString()} USD)`,
-        description: `Enviar recordatorio preventivo 48h antes del vencimiento a ${patient.fullName} para la cuota #${installment.installmentNumber} por $${installment.amount.toLocaleString()} USD.`,
+        title: isFirstWithDeferral
+          ? `Aviso Previo: Cuota #1 [Diferida ${patient.financingDeferralDays}d] (${installment.dueDate}) ($${installment.amount.toLocaleString()} USD)`
+          : `Aviso Previo: Cuota #${installment.installmentNumber}/${patient.paymentSchedule!.length} ($${installment.amount.toLocaleString()} USD)`,
+        description: isFirstWithDeferral
+          ? `Recordatorio preventivo 48h antes del vencimiento de la 1ª cuota (aplazada ${patient.financingDeferralDays} días) a ${patient.fullName} por $${installment.amount.toLocaleString()} USD.`
+          : `Enviar recordatorio preventivo 48h antes del vencimiento a ${patient.fullName} para la cuota #${installment.installmentNumber} por $${installment.amount.toLocaleString()} USD.`,
         dueDate: reminderDateStr,
         dueTime: '09:30',
         status: installment.status === 'paid' ? 'completed' : 'pending',
-        priority: 'media',
+        priority: isFirstWithDeferral ? 'alta' : 'media',
         amount: installment.amount,
         installmentNumber: installment.installmentNumber,
         totalInstallments: patient.paymentSchedule!.length,
@@ -1283,8 +1308,12 @@ export function generatePatientCRMEvents(
         patientName: patient.fullName,
         patientPhone: patient.phone,
         type: 'vencimiento_cuota',
-        title: `Vencimiento de Cobro: Cuota #${installment.installmentNumber}/${patient.paymentSchedule!.length} ($${installment.amount.toLocaleString()} USD)`,
-        description: `Vencimiento oficial de la cuota #${installment.installmentNumber}. Solicitar comprobante de transferencia o pago en consultorio a ${patient.fullName}.`,
+        title: isFirstWithDeferral
+          ? `Vencimiento Oficial: 1ª Cuota [Diferida ${patient.financingDeferralDays}d] ($${installment.amount.toLocaleString()} USD)`
+          : `Vencimiento de Cobro: Cuota #${installment.installmentNumber}/${patient.paymentSchedule!.length} ($${installment.amount.toLocaleString()} USD)`,
+        description: isFirstWithDeferral
+          ? `Vencimiento oficial de la 1ª cuota luego del diferimiento concedido de ${patient.financingDeferralDays} días. Solicitar comprobante de transferencia o pago en consultorio a ${patient.fullName}.`
+          : `Vencimiento oficial de la cuota #${installment.installmentNumber}. Solicitar comprobante de transferencia o pago en consultorio a ${patient.fullName}.`,
         dueDate: installment.dueDate,
         dueTime: '10:00',
         status: installment.status === 'paid' ? 'completed' : 'pending',
@@ -1298,6 +1327,32 @@ export function generatePatientCRMEvents(
         assignedTo: 'Cdr. Esteban Morales (Finanzas)',
       });
     });
+
+    // C) Alarma CRM específica por diferimiento de 1ª cuota
+    if (hasDeferral && patient.paymentSchedule.length > 0) {
+      const firstDue = patient.paymentSchedule[0].dueDate;
+      events.push({
+        id: `CRM-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}-alarma-dif`,
+        patientId: patient.id,
+        patientName: patient.fullName,
+        patientPhone: patient.phone,
+        type: 'notificacion_cobro',
+        title: `Alarma CRM: Fin de Período de Gracia / Diferimiento (${patient.financingDeferralDays} días)`,
+        description: `Finaliza el período de diferimiento acordado (${patient.financingDeferralDays} días) para la 1ª cuota de ${patient.fullName}. Cobro de $${patient.paymentSchedule[0].amount.toLocaleString()} USD activo.`,
+        dueDate: firstDue,
+        dueTime: '08:30',
+        status: 'pending',
+        priority: 'alta',
+        amount: patient.paymentSchedule[0].amount,
+        installmentNumber: 1,
+        totalInstallments: patient.paymentSchedule.length,
+        channel: 'whatsapp',
+        procedure: patient.procedure,
+        createdAt: createdIso,
+        assignedTo: 'Cdr. Esteban Morales (Finanzas)',
+        notes: `Diferimiento autorizado de ${patient.financingDeferralDays} días otorgado al registrar el plan.`,
+      });
+    }
   } else if (patient.balance > 0) {
     // Si no tiene cronograma pero tiene saldo pendiente
     const targetDueDate = patient.nextPaymentDate || (() => {

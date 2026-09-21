@@ -45,6 +45,7 @@ export interface Patient {
   financingFrequency?: PaymentFrequency;
   financingInstallmentsCount?: number;
   financingInstallmentAmount?: number;
+  financingDeferralDays?: number; // Días de diferimiento / aplazamiento de la primera cuota (0 a 60 días)
   paymentSchedule?: ScheduledPayment[];
 
   // Descuentos y Cupones Comerciales
@@ -162,11 +163,13 @@ export interface CRMEvent {
   notes?: string;
 }
 
+export type ProcedureCategory = 'Facial' | 'Corporal' | 'Extra';
+
 export interface SurgicalProcedure {
   id: string;
   code: string;
   name: string;
-  category: 'Facial' | 'Corporal' | 'Medicina Estética' | 'Capilar' | 'Otro';
+  category: ProcedureCategory | string;
   basePrice: number;
   durationMinutes?: number;
   requiresOR?: boolean; // Requiere Quirófano (opcional)
