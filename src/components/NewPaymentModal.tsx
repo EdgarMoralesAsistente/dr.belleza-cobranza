@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, DollarSign, Calendar, Check, MessageCircle, AlertCircle, Search, FileDown } from 'lucide-react';
+import { X, DollarSign, Calendar, Check, MessageCircle, AlertCircle, Search, FileDown, Calculator } from 'lucide-react';
 import { Patient, Payment } from '../types';
 import { downloadReceiptPDF } from '../services/pdfReport';
+import { recalculatePatientOnPayment } from '../services/storage';
 
 interface NewPaymentModalProps {
   isOpen: boolean;
@@ -87,15 +88,8 @@ export const NewPaymentModal: React.FC<NewPaymentModalProps> = ({
       createdAt: new Date().toISOString(),
     };
 
-    // Calculate projected totals
-    const projectedPaid = selectedPatient.totalPaid + numericAmount;
-    const projectedBalance = Math.max(0, selectedPatient.totalCost - projectedPaid);
-    const updatedPatient: Patient = {
-      ...selectedPatient,
-      totalPaid: projectedPaid,
-      balance: projectedBalance,
-      status: projectedBalance === 0 ? 'paid' : selectedPatient.status,
-    };
+    // Calculate projected totals and re-amortized schedule
+    const updatedPatient = recalculatePatientOnPayment(selectedPatient, numericAmount, date);
 
     downloadReceiptPDF({
       patient: updatedPatient,
@@ -223,16 +217,43 @@ export const NewPaymentModal: React.FC<NewPaymentModalProps> = ({
 
           {/* Current Patient Status Card */}
           {selectedPatient && (
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-              <div>
-                <p className="font-semibold text-slate-800">{selectedPatient.procedure}</p>
-                <p className="text-slate-500">Tel: {selectedPatient.phone} {selectedPatient.idNumber ? `• DNI: ${selectedPatient.idNumber}` : ''}</p>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-slate-800">{selectedPatient.procedure}</p>
+                  <p className="text-slate-500">Tel: {selectedPatient.phone} {selectedPatient.idNumber ? `• DNI: ${selectedPatient.idNumber}` : ''}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-slate-500">Saldo Pendiente:</p>
+                  <p className={`font-bold text-sm ${selectedPatient.balance > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                    ${selectedPatient.balance.toLocaleString()} USD
+                  </p>
+                </div>
               </div>
-              <div className="text-right">
-                <p className="text-slate-500">Saldo Actual:</p>
-                <p className={`font-bold text-sm ${selectedPatient.balance > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
-                  ${selectedPatient.balance.toLocaleString()} USD
-                </p>
+
+              {/* Atajos de cuota y saldo */}
+              <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between flex-wrap gap-1.5">
+                <span className="text-[11px] text-slate-500 font-medium">Carga rápida:</span>
+                <div className="flex items-center space-x-1.5">
+                  {selectedPatient.financingInstallmentAmount && selectedPatient.financingInstallmentAmount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setAmount(selectedPatient.financingInstallmentAmount || 0)}
+                      className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 transition-colors cursor-pointer"
+                    >
+                      Cuota ${selectedPatient.financingInstallmentAmount.toLocaleString()}
+                    </button>
+                  ) : null}
+                  {selectedPatient.balance > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setAmount(selectedPatient.balance)}
+                      className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-200 text-slate-800 hover:bg-slate-300 transition-colors cursor-pointer"
+                    >
+                      Saldo Total ${selectedPatient.balance.toLocaleString()}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -268,6 +289,20 @@ export const NewPaymentModal: React.FC<NewPaymentModalProps> = ({
               />
             </div>
           </div>
+
+          {/* Recalculation Notice when amount > 0 and patient selected */}
+          {selectedPatient && Number(amount) > 0 && (
+            <div className="p-2.5 bg-blue-50/90 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start space-x-2 shadow-2xs">
+              <Calculator className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">Recálculo automático de cuotas:</span> Este abono de{' '}
+                <strong>${Number(amount).toLocaleString('es-AR')} USD</strong> afectará el saldo total{' '}
+                (nuevo saldo proyectado:{' '}
+                <strong>${Math.max(0, selectedPatient.balance - Number(amount)).toLocaleString('es-AR')} USD</strong>).{' '}
+                Las futuras cuotas pendientes se recalcularán equitativamente en el cronograma y en el CRM.
+              </div>
+            </div>
+          )}
 
           {/* Método de Pago */}
           <div>

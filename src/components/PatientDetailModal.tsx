@@ -17,9 +17,12 @@ import {
   CalendarClock,
   Edit3,
   FileDown,
+  ShieldAlert,
+  Tag,
 } from 'lucide-react';
 import { Patient, Payment, Refund } from '../types';
 import { downloadReceiptPDF } from '../services/pdfReport';
+import { getPatientProcedureBreakdown } from '../services/storage';
 
 interface PatientDetailModalProps {
   isOpen: boolean;
@@ -46,6 +49,7 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
 }) => {
   if (!isOpen || !patient) return null;
 
+  const breakdown = getPatientProcedureBreakdown(patient);
   const patientPayments = payments.filter((p) => p.patientId === patient.id);
   const patientRefunds = refunds.filter((r) => r.patientId === patient.id);
 
@@ -153,6 +157,88 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
               <span className="text-[10px] text-slate-500">
                 {isPaid ? 'Al día / Cancelado' : 'Pendiente de cobro'}
               </span>
+            </div>
+          </div>
+
+          {/* Desglose de Procedimientos y Totalización Discriminada */}
+          <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200 space-y-2.5 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center">
+                <FileText className="w-3.5 h-3.5 mr-1.5 text-slate-600" />
+                Cirugías Contratadas & Base Económica
+              </span>
+              {breakdown.exemptSubtotal > 0 && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                  <ShieldAlert className="w-3 h-3 mr-1 text-amber-700" />
+                  ${breakdown.exemptSubtotal.toLocaleString('es-AR')} USD exentos de desc. (Extra)
+                </span>
+              )}
+            </div>
+
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden divide-y divide-slate-100">
+              {breakdown.items.map((item, idx) => {
+                const isExempt = item.isExtra || item.category === 'Extra';
+                return (
+                  <div key={idx} className="p-2.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center space-x-1.5 flex-wrap">
+                        <span className="font-semibold text-slate-800">{item.name}</span>
+                        <span
+                          className={`px-1.5 py-0.2 rounded text-[9px] font-medium ${
+                            item.category === 'Facial'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : item.category === 'Corporal'
+                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                              : 'bg-amber-50 text-amber-800 border border-amber-300'
+                          }`}
+                        >
+                          {item.category}
+                        </span>
+                        {isExempt && (
+                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            <ShieldAlert className="w-2.5 h-2.5 mr-0.5 text-amber-700" />
+                            [Exento de desc.]
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400">
+                        {isExempt ? 'Concepto especial exento de descuentos y cupones' : 'Sujeto a beneficios comerciales'}
+                      </span>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <span className="font-bold text-slate-900 bg-slate-50 px-2 py-0.5 rounded border border-slate-200 text-xs">
+                        ${item.basePrice.toLocaleString('es-AR')} USD
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Resumen de Totalización Discriminada */}
+            <div className="p-2.5 bg-slate-100/70 rounded-lg border border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <div className="space-y-0.5 text-slate-700">
+                <div>
+                  • Base sujeta a descuento: <strong>${breakdown.discountableSubtotal.toLocaleString('es-AR')} USD</strong>
+                </div>
+                {breakdown.exemptSubtotal > 0 && (
+                  <div className="text-amber-900 font-semibold flex items-center">
+                    <ShieldAlert className="w-3 h-3 mr-1 text-amber-700 shrink-0" />
+                    • Subtotal Exento de Descuento (Categoría Extra): <strong className="ml-1">${breakdown.exemptSubtotal.toLocaleString('es-AR')} USD</strong>
+                  </div>
+                )}
+                {patient.totalDiscount && patient.totalDiscount > 0 ? (
+                  <div className="text-emerald-700 font-semibold">
+                    • Descuento comercial aplicado: <strong>-${patient.totalDiscount.toLocaleString('es-AR')} USD</strong>
+                  </div>
+                ) : null}
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-slate-400 block uppercase">Presupuesto Final</span>
+                <span className="text-sm font-black text-slate-900">
+                  ${patient.totalCost.toLocaleString('es-AR')} USD
+                </span>
+              </div>
             </div>
           </div>
 

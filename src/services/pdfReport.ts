@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { Patient, Payment, Refund } from '../types';
+import { getPatientProcedureBreakdown } from './storage';
 
 export interface MonthlyReportParams {
   year: number;
@@ -467,7 +468,110 @@ export function generateReceiptPDF({
   }
 
   // ==========================================
-  // SECTION 3: ESTADO DE CUENTA FINANCIERO
+  // SECTION 3: DETALLE DE CIRUGÍAS & DISCRIMINACIÓN DE EXENCIONES
+  // ==========================================
+  const breakdown = getPatientProcedureBreakdown(patient);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('DETALLE DE CIRUGÍAS & PROCEDIMIENTOS CONTRATADOS', 14, currentY);
+  currentY += 4;
+
+  // Header tabla de procedimientos
+  doc.setFillColor(241, 245, 249);
+  doc.rect(14, currentY, pageWidth - 28, 6, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text('Procedimiento Quirúrgico / Tratamiento', 18, currentY + 4);
+  doc.text('Categoría', 92, currentY + 4);
+  doc.text('Condición de Descuento', 122, currentY + 4);
+  doc.text('Importe Base ($)', pageWidth - 18, currentY + 4, { align: 'right' });
+  currentY += 6;
+
+  // Filas de procedimientos
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+
+  breakdown.items.forEach((item) => {
+    doc.setDrawColor(241, 245, 249);
+    doc.line(14, currentY + 5.5, pageWidth - 14, currentY + 5.5);
+
+    doc.setTextColor(30, 41, 59);
+    doc.text(item.name.substring(0, 40), 18, currentY + 4);
+
+    // Categoría
+    doc.setTextColor(71, 85, 105);
+    doc.text(item.category || 'Quirúrgico', 92, currentY + 4);
+
+    // Indicador o señal de exención para categoría Extra
+    const isExempt = item.isExtra || item.category === 'Extra';
+    if (isExempt) {
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(180, 83, 9); // Ámbar oscuro
+      doc.text('[Exento de desc.]', 122, currentY + 4);
+      doc.setFont('helvetica', 'normal');
+    } else {
+      doc.setTextColor(100, 116, 139);
+      doc.text('Sujeto a descuento', 122, currentY + 4);
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`$${item.basePrice.toLocaleString('es-AR')} USD`, pageWidth - 18, currentY + 4, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+
+    currentY += 5.5;
+  });
+
+  currentY += 2;
+
+  // RECUADRO DE TOTALIZACIÓN DISCRIMINADA
+  const hasExempt = breakdown.exemptSubtotal > 0;
+  const totalBoxHeight = hasExempt ? 15 : 11;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(14, currentY, pageWidth - 28, totalBoxHeight, 1.5, 1.5, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text('TOTALIZACIÓN Y DISCRIMINACIÓN ECONÓMICA:', 18, currentY + 4);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(51, 65, 85);
+  doc.text(
+    `• Subtotal Sujeto a Descuento: $${breakdown.discountableSubtotal.toLocaleString('es-AR')} USD`,
+    18,
+    currentY + 8.5
+  );
+
+  if (hasExempt) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(180, 83, 9);
+    doc.text(
+      `• Subtotal Exento de Descuento (Categoría Extra): $${breakdown.exemptSubtotal.toLocaleString('es-AR')} USD [Exento]`,
+      92,
+      currentY + 8.5
+    );
+  }
+
+  if (patient.totalDiscount && patient.totalDiscount > 0) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(5, 150, 105);
+    doc.text(
+      `• Descuento Total Otorgado: -$${patient.totalDiscount.toLocaleString('es-AR')} USD (Ahorro aplicado sólo a base sujeta)`,
+      18,
+      currentY + 12.5
+    );
+  }
+
+  currentY += totalBoxHeight + 5;
+
+  // ==========================================
+  // SECTION 4: ESTADO DE CUENTA FINANCIERO
   // ==========================================
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);

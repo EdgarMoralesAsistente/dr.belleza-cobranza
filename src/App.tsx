@@ -60,6 +60,7 @@ import {
   saveLocalCRMEvents,
   generatePatientCRMEvents,
   getEffectiveGasUrl,
+  recalculatePatientOnPayment,
 } from './services/storage';
 import {
   initAuth,
@@ -1040,17 +1041,10 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    // Update patient totals
+    // Update patient totals and dynamically re-amortize pending installments
     const updatedPatients = patients.map((patient) => {
       if (patient.id === paymentRecord.patientId) {
-        const newPaid = patient.totalPaid + paymentRecord.amount;
-        const newBalance = Math.max(0, patient.totalCost - newPaid);
-        return {
-          ...patient,
-          totalPaid: newPaid,
-          balance: newBalance,
-          status: (newBalance <= 0 ? 'paid' : 'pending') as 'paid' | 'pending',
-        };
+        return recalculatePatientOnPayment(patient, paymentRecord.amount, paymentRecord.date);
       }
       return patient;
     });

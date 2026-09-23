@@ -10,6 +10,8 @@ import {
   RolePrivilege,
   FinancingPlan,
   CRMEvent,
+  PatientProcedureItem,
+  ScheduledPayment,
 } from '../types';
 
 export const EDGAR_SUPER_ADMIN_ID = 'USR-SUPER-EDGAR';
@@ -757,12 +759,47 @@ export const INITIAL_PROCEDURES: SurgicalProcedure[] = [
     isActive: true,
     notes: 'Frente, entrecejo y patas de gallo con Botox Allergan 50UI.',
   },
+  {
+    id: 'PRC-011',
+    code: 'QX-LIPO-GLU',
+    name: 'Lipoinyección Glútea',
+    category: 'Corporal',
+    basePrice: 1000,
+    durationMinutes: 90,
+    requiresOR: true,
+    doctorCommissionPercent: 65,
+    isActive: true,
+    notes: 'Transferencia grasa autóloga a glúteos.',
+  },
+  {
+    id: 'PRC-012',
+    code: 'EX-PROTESIS',
+    name: 'Prótesis Mamaria',
+    category: 'Extra',
+    basePrice: 500,
+    durationMinutes: 30,
+    requiresOR: false,
+    doctorCommissionPercent: 0,
+    isActive: true,
+    notes: 'Insumo especial categoría Extra (Exento de descuentos y cupones).',
+  },
 ];
 
 export function loadLocalProcedures(): SurgicalProcedure[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.PROCEDURES);
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed: SurgicalProcedure[] = JSON.parse(saved);
+      // Ensure all INITIAL_PROCEDURES exist so newly added ones (like Lipoinyección or Prótesis Mamaria) are available
+      const existingCodes = new Set(parsed.map((p) => p.code));
+      const missing = INITIAL_PROCEDURES.filter((p) => !existingCodes.has(p.code));
+      if (missing.length > 0) {
+        const merged = [...parsed, ...missing];
+        localStorage.setItem(STORAGE_KEYS.PROCEDURES, JSON.stringify(merged));
+        return merged;
+      }
+      return parsed;
+    }
   } catch (e) {
     console.error('Error loading procedures from localStorage', e);
   }
@@ -775,6 +812,199 @@ export function saveLocalProcedures(procedures: SurgicalProcedure[]): void {
   } catch (e) {
     console.error('Error saving procedures to localStorage', e);
   }
+}
+
+/**
+ * Obtiene el desglose discriminado de procedimientos entre sujetos a descuento y exentos (categoría 'Extra').
+ */
+export function getPatientProcedureBreakdown(
+  patient: Patient,
+  proceduresCatalog: SurgicalProcedure[] = []
+): {
+  items: PatientProcedureItem[];
+  discountableSubtotal: number;
+  exemptSubtotal: number;
+  grossSubtotal: number;
+} {
+  // 1. Si la paciente ya posee procedureItems guardados, usarlos
+  if (patient.procedureItems && patient.procedureItems.length > 0) {
+    const items = patient.procedureItems.map((item) => ({
+      ...item,
+      isExtra: item.isExtra ?? item.category === 'Extra',
+    }));
+    const discountableSubtotal = items
+      .filter((i) => !i.isExtra && i.category !== 'Extra')
+      .reduce((acc, i) => acc + i.basePrice, 0);
+    const exemptSubtotal = items
+      .filter((i) => i.isExtra || i.category === 'Extra')
+      .reduce((acc, i) => acc + i.basePrice, 0);
+    return {
+      items,
+      discountableSubtotal,
+      exemptSubtotal,
+      grossSubtotal: discountableSubtotal + exemptSubtotal,
+    };
+  }
+
+  // 2. Si no, reconstruir a partir del texto del procedimiento (ej: "Lipoinyección Glútea + Prótesis Mamaria")
+  const catalog = proceduresCatalog.length > 0 ? proceduresCatalog : INITIAL_PROCEDURES;
+  const parts = patient.procedure ? patient.procedure.split(' + ').map((s) => s.trim()).filter(Boolean) : [];
+
+  const items: PatientProcedureItem[] = [];
+  let foundExemptSum = 0;
+  let foundRegularSum = 0;
+
+  parts.forEach((name) => {
+    const matched = catalog.find(
+      (p) =>
+        p.name.toLowerCase() === name.toLowerCase() ||
+        p.code.toLowerCase() === name.toLowerCase()
+    );
+    if (matched) {
+      const isExtra = matched.category === 'Extra';
+      items.push({
+        id: matched.id,
+        code: matched.code,
+        name: matched.name,
+        category: matched.category,
+        basePrice: matched.basePrice,
+        isExtra,
+      });
+      if (isExtra) foundExemptSum += matched.basePrice;
+      else foundRegularSum += matched.basePrice;
+    } else {
+      const isLikelyExtra =
+        name.toLowerCase().includes('extra') ||
+        name.toLowerCase().includes('prótesis') ||
+        name.toLowerCase().includes('protesis');
+      const estPrice = Math.round(
+        (patient.originalSubtotal || patient.totalCost) / Math.max(1, parts.length)
+      );
+      items.push({
+        name,
+        category: isLikelyExtra ? 'Extra' : 'Corporal',
+        basePrice: estPrice,
+        isExtra: isLikelyExtra,
+      });
+      if (isLikelyExtra) foundExemptSum += estPrice;
+      else foundRegularSum += estPrice;
+    }
+  });
+
+  const exemptSubtotal =
+    patient.exemptSubtotal !== undefined ? patient.exemptSubtotal : foundExemptSum;
+  const discountableSubtotal =
+    patient.discountableSubtotal !== undefined
+      ? patient.discountableSubtotal
+      : (patient.originalSubtotal || patient.totalCost) - exemptSubtotal;
+
+  return {
+    items,
+    discountableSubtotal: Math.max(0, discountableSubtotal),
+    exemptSubtotal: Math.max(0, exemptSubtotal),
+    grossSubtotal: patient.originalSubtotal || patient.totalCost,
+  };
+}
+
+/**
+ * Recalcula el saldo total y el monto de las futuras cuotas pendientes cuando una paciente
+ * realiza un pago, garantizando que si el pago es superior (o modifica el saldo), las cuotas
+ * pendientes se recalculen de manera equitativa según el nuevo saldo remanente.
+ */
+export function recalculatePatientOnPayment(
+  patient: Patient,
+  paymentAmount: number,
+  paymentDate: string
+): Patient {
+  const newPaid = patient.totalPaid + paymentAmount;
+  const newBalance = Math.max(0, patient.totalCost - newPaid);
+  const newStatus: Patient['status'] =
+    newBalance <= 0 ? 'paid' : patient.status === 'overdue' ? 'pending' : patient.status;
+
+  // Clonar el cronograma si existe
+  let schedule: ScheduledPayment[] = patient.paymentSchedule
+    ? patient.paymentSchedule.map((s) => ({ ...s }))
+    : [];
+
+  if (schedule.length > 0) {
+    // Buscar la primera cuota que aún no esté pagada
+    const firstPendingIdx = schedule.findIndex((s) => s.status !== 'paid');
+
+    if (firstPendingIdx !== -1) {
+      // Marcar esta cuota actual como pagada
+      schedule[firstPendingIdx].status = 'paid';
+      schedule[firstPendingIdx].notes = `Abono registrado: $${paymentAmount.toLocaleString('es-AR')} USD el ${paymentDate}`;
+
+      // Cuotas pendientes posteriores a la que se acaba de abonar
+      const futureInstallments = schedule
+        .slice(firstPendingIdx + 1)
+        .filter((s) => s.status !== 'paid');
+
+      if (newBalance <= 0) {
+        // Cuenta totalmente saldada: todas las futuras cuotas se cancelan y van a $0
+        futureInstallments.forEach((inst) => {
+          inst.status = 'paid';
+          inst.amount = 0;
+          inst.notes = 'Cancelada por saldo total anticipado';
+        });
+      } else if (futureInstallments.length > 0) {
+        // Distribuir el nuevo saldo remanente equitativamente entre las cuotas futuras pendientes
+        const count = futureInstallments.length;
+        const baseAmt = Math.floor(newBalance / count);
+        const remainder = newBalance - baseAmt * count;
+
+        futureInstallments.forEach((inst, idx) => {
+          inst.amount = baseAmt + (idx === count - 1 ? remainder : 0);
+          inst.status = 'pending';
+        });
+      } else {
+        // No quedaban más cuotas en el cronograma pero aún hay saldo pendiente
+        schedule.push({
+          installmentNumber: schedule.length + 1,
+          dueDate: patient.nextPaymentDate || paymentDate,
+          amount: newBalance,
+          status: 'pending',
+          notes: 'Saldo remanente pendiente',
+        });
+      }
+    } else {
+      // Todas estaban marcadas pagadas previamente pero hubo saldo
+      if (newBalance > 0) {
+        schedule.push({
+          installmentNumber: schedule.length + 1,
+          dueDate: patient.nextPaymentDate || paymentDate,
+          amount: newBalance,
+          status: 'pending',
+          notes: 'Saldo remanente ajustado',
+        });
+      }
+    }
+  }
+
+  // Buscar la siguiente cuota pendiente
+  const remainingPendingInstallments = schedule.filter((s) => s.status !== 'paid');
+  const nextPending = remainingPendingInstallments[0];
+  const newInstallmentAmount =
+    newBalance <= 0
+      ? 0
+      : nextPending
+      ? nextPending.amount
+      : remainingPendingInstallments.length > 0
+      ? Math.round(newBalance / remainingPendingInstallments.length)
+      : patient.financingInstallmentAmount || 0;
+
+  const nextPaymentDate =
+    newBalance <= 0 ? undefined : (nextPending?.dueDate || patient.nextPaymentDate);
+
+  return {
+    ...patient,
+    totalPaid: newPaid,
+    balance: newBalance,
+    status: newStatus,
+    financingInstallmentAmount: newInstallmentAmount,
+    nextPaymentDate,
+    paymentSchedule: schedule,
+  };
 }
 
 export const INITIAL_COUPONS: DiscountCoupon[] = [

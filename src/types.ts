@@ -20,6 +20,15 @@ export interface ScheduledPayment {
   notes?: string;
 }
 
+export interface PatientProcedureItem {
+  id?: string;
+  code?: string;
+  name: string;
+  category: ProcedureCategory | string;
+  basePrice: number;
+  isExtra?: boolean;
+}
+
 export interface Patient {
   id: string;
   fullName: string;
@@ -29,6 +38,7 @@ export interface Patient {
   city?: string; // Ciudad de residencia de la paciente
   campaign?: string; // Campaña de marketing / origen (ej. Instagram Ads, Google Ads, TikTok, Referido)
   procedure: string; // Procedimiento estético / Tratamiento
+  procedureItems?: PatientProcedureItem[]; // Detalle individual de cada procedimiento acordado
   doctor: string; // default: Dr. Jorge Apelencia
   totalCost: number; // Monto total acordado
   totalPaid: number; // Total abonado
@@ -50,6 +60,8 @@ export interface Patient {
 
   // Descuentos y Cupones Comerciales
   originalSubtotal?: number; // Subtotal base antes de descuentos
+  discountableSubtotal?: number; // Subtotal de procedimientos regulares sujetos a descuento
+  exemptSubtotal?: number; // Subtotal de procedimientos categoría 'Extra' (exentos de descuento)
   discountPercent?: number; // % de descuento directo
   discountAmount?: number; // $ descontado por porcentaje
   couponCode?: string; // Código del cupón aplicado

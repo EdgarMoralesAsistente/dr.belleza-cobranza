@@ -23,6 +23,7 @@ import {
   ChevronDown,
   CheckCircle2,
   RotateCcw,
+  ShieldAlert,
 } from 'lucide-react';
 import { Patient, Payment, PaymentMethod, SurgicalProcedure, DiscountCoupon, FinancingPlan, ScheduledPayment, AppBrandingConfig } from '../types';
 import { INITIAL_PROCEDURES, INITIAL_FINANCING_PLANS } from '../services/storage';
@@ -126,6 +127,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
   const [includeCustomProcedure, setIncludeCustomProcedure] = useState(false);
   const [customProcedureName, setCustomProcedureName] = useState('');
   const [customProcedurePrice, setCustomProcedurePrice] = useState<number | ''>('');
+  const [customProcedureCategory, setCustomProcedureCategory] = useState<'Facial' | 'Corporal' | 'Extra'>('Corporal');
 
   // Filter / Search state for procedures
   const [procSearch, setProcSearch] = useState('');
@@ -178,14 +180,51 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     return procedureCatalog.filter((p) => selectedProcedureIds.includes(p.id));
   }, [procedureCatalog, selectedProcedureIds]);
 
-  // Recalculate base sum
-  const calculatedSum = useMemo(() => {
-    let sum = selectedProcedures.reduce((acc, p) => acc + p.basePrice, 0);
-    if (includeCustomProcedure && Number(customProcedurePrice) > 0) {
+  // Helper de cálculo de subtotales discriminados
+  const getSubtotalsForProcs = (
+    procs: SurgicalProcedure[],
+    includeCust: boolean,
+    custCat: 'Facial' | 'Corporal' | 'Extra',
+    custPrice: number | ''
+  ) => {
+    let disc = procs.filter((p) => p.category !== 'Extra').reduce((acc, p) => acc + p.basePrice, 0);
+    let exm = procs.filter((p) => p.category === 'Extra').reduce((acc, p) => acc + p.basePrice, 0);
+    if (includeCust && Number(custPrice) > 0) {
+      if (custCat === 'Extra') {
+        exm += Number(custPrice);
+      } else {
+        disc += Number(custPrice);
+      }
+    }
+    return { disc, exm };
+  };
+
+  // Subtotal sujeto a descuento (categorías regulares)
+  const discountableSubtotal = useMemo(() => {
+    let sum = selectedProcedures
+      .filter((p) => p.category !== 'Extra')
+      .reduce((acc, p) => acc + p.basePrice, 0);
+    if (includeCustomProcedure && customProcedureCategory !== 'Extra' && Number(customProcedurePrice) > 0) {
       sum += Number(customProcedurePrice);
     }
     return sum;
-  }, [selectedProcedures, includeCustomProcedure, customProcedurePrice]);
+  }, [selectedProcedures, includeCustomProcedure, customProcedureCategory, customProcedurePrice]);
+
+  // Subtotal exento de descuento (categoría 'Extra')
+  const exemptSubtotal = useMemo(() => {
+    let sum = selectedProcedures
+      .filter((p) => p.category === 'Extra')
+      .reduce((acc, p) => acc + p.basePrice, 0);
+    if (includeCustomProcedure && customProcedureCategory === 'Extra' && Number(customProcedurePrice) > 0) {
+      sum += Number(customProcedurePrice);
+    }
+    return sum;
+  }, [selectedProcedures, includeCustomProcedure, customProcedureCategory, customProcedurePrice]);
+
+  // Suma total bruta (gross sum)
+  const calculatedSum = useMemo(() => {
+    return discountableSubtotal + exemptSubtotal;
+  }, [discountableSubtotal, exemptSubtotal]);
 
   // Active coupon object
   const activeCoupon = useMemo(() => {
@@ -193,53 +232,55 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     return availableCoupons.find((c) => c.code === selectedCouponCode && c.isActive) || null;
   }, [availableCoupons, selectedCouponCode]);
 
-  // Direct percentage discount amount (descuento sobre el total de la cirugía)
+  // Direct percentage discount amount (se aplica EXCLUSIVAMENTE a la base sujeta, NO a Extra)
   const percentDiscountAmount = useMemo(() => {
     const pct = Number(discountPercent) || 0;
-    if (pct <= 0) return 0;
-    return Math.round((calculatedSum * pct) / 100);
-  }, [calculatedSum, discountPercent]);
+    if (pct <= 0 || discountableSubtotal <= 0) return 0;
+    return Math.round((discountableSubtotal * pct) / 100);
+  }, [discountableSubtotal, discountPercent]);
 
-  // Coupon discount amount (combinable con el porcentaje)
+  // Coupon discount amount (se aplica EXCLUSIVAMENTE a la base sujeta, NO a Extra)
   const couponDiscountAmount = useMemo(() => {
-    if (!activeCoupon) return 0;
+    if (!activeCoupon || discountableSubtotal <= 0) return 0;
     if (activeCoupon.discountType === 'percentage') {
-      return Math.round((calculatedSum * activeCoupon.discountValue) / 100);
+      return Math.round((discountableSubtotal * activeCoupon.discountValue) / 100);
     } else {
-      const remainingBase = Math.max(0, calculatedSum - percentDiscountAmount);
+      const remainingBase = Math.max(0, discountableSubtotal - percentDiscountAmount);
       return Math.min(remainingBase, activeCoupon.discountValue);
     }
-  }, [activeCoupon, calculatedSum, percentDiscountAmount]);
+  }, [activeCoupon, discountableSubtotal, percentDiscountAmount]);
 
-  // Combined total discount (descuento % + cupón simultáneamente)
+  // Combined total discount (descuento % + cupón simultáneamente sobre base sujeta)
   const combinedTotalDiscount = useMemo(() => {
-    return Math.min(calculatedSum, percentDiscountAmount + couponDiscountAmount);
-  }, [calculatedSum, percentDiscountAmount, couponDiscountAmount]);
+    return Math.min(discountableSubtotal, percentDiscountAmount + couponDiscountAmount);
+  }, [discountableSubtotal, percentDiscountAmount, couponDiscountAmount]);
 
-  // Net calculated total after all discounts
+  // Net calculated total after all discounts: (base con descuento) + base exenta intacta
   const netCalculatedTotal = useMemo(() => {
-    return Math.max(0, calculatedSum - combinedTotalDiscount);
-  }, [calculatedSum, combinedTotalDiscount]);
+    return Math.max(0, (discountableSubtotal - combinedTotalDiscount) + exemptSubtotal);
+  }, [discountableSubtotal, combinedTotalDiscount, exemptSubtotal]);
 
   // Unified helper to recompute and set totalCost
   const computeAndSetTotalCost = (
-    baseSum: number,
+    discSub: number,
+    exmSub: number,
     pct: number | '',
     couponCode: string
   ) => {
     const pVal = Number(pct) || 0;
-    const pDisc = pVal > 0 ? Math.round((baseSum * pVal) / 100) : 0;
+    const pDisc = pVal > 0 && discSub > 0 ? Math.round((discSub * pVal) / 100) : 0;
     const cpn = availableCoupons?.find((c) => c.code === couponCode && c.isActive);
     let cDisc = 0;
-    if (cpn) {
+    if (cpn && discSub > 0) {
       if (cpn.discountType === 'percentage') {
-        cDisc = Math.round((baseSum * cpn.discountValue) / 100);
+        cDisc = Math.round((discSub * cpn.discountValue) / 100);
       } else {
-        const remaining = Math.max(0, baseSum - pDisc);
+        const remaining = Math.max(0, discSub - pDisc);
         cDisc = Math.min(remaining, cpn.discountValue);
       }
     }
-    const finalAmount = Math.max(0, baseSum - (pDisc + cDisc));
+    const totalDisc = Math.min(discSub, pDisc + cDisc);
+    const finalAmount = Math.max(0, (discSub - totalDisc) + exmSub);
     setTotalCost(finalAmount);
   };
 
@@ -254,14 +295,14 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     }
     setSelectedProcedureIds(newSelected);
 
-    // Compute updated sum
     const updatedProcs = procedureCatalog.filter((p) => newSelected.includes(p.id));
-    let newSum = updatedProcs.reduce((acc, p) => acc + p.basePrice, 0);
-    if (includeCustomProcedure && Number(customProcedurePrice) > 0) {
-      newSum += Number(customProcedurePrice);
-    }
-
-    computeAndSetTotalCost(newSum, discountPercent, selectedCouponCode);
+    const { disc, exm } = getSubtotalsForProcs(
+      updatedProcs,
+      includeCustomProcedure,
+      customProcedureCategory,
+      customProcedurePrice
+    );
+    computeAndSetTotalCost(disc, exm, discountPercent, selectedCouponCode);
   };
 
   // When custom procedure or price changes, update totalCost
@@ -269,33 +310,37 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
     const num = val === '' ? '' : Number(val);
     setCustomProcedurePrice(num);
 
-    let sum = selectedProcedures.reduce((acc, p) => acc + p.basePrice, 0);
-    if (includeCustomProcedure && Number(num) > 0) {
-      sum += Number(num);
-    }
-    computeAndSetTotalCost(sum, discountPercent, selectedCouponCode);
+    const { disc, exm } = getSubtotalsForProcs(
+      selectedProcedures,
+      includeCustomProcedure,
+      customProcedureCategory,
+      num
+    );
+    computeAndSetTotalCost(disc, exm, discountPercent, selectedCouponCode);
   };
 
   // Toggle custom procedure checkbox
   const handleToggleCustom = (checked: boolean) => {
     setIncludeCustomProcedure(checked);
-    let sum = selectedProcedures.reduce((acc, p) => acc + p.basePrice, 0);
-    if (checked && Number(customProcedurePrice) > 0) {
-      sum += Number(customProcedurePrice);
-    }
-    computeAndSetTotalCost(sum, discountPercent, selectedCouponCode);
+    const { disc, exm } = getSubtotalsForProcs(
+      selectedProcedures,
+      checked,
+      customProcedureCategory,
+      customProcedurePrice
+    );
+    computeAndSetTotalCost(disc, exm, discountPercent, selectedCouponCode);
   };
 
   // Handle direct discount percentage change
   const handleDiscountPercentChange = (val: number | '') => {
     setDiscountPercent(val);
-    computeAndSetTotalCost(calculatedSum, val, selectedCouponCode);
+    computeAndSetTotalCost(discountableSubtotal, exemptSubtotal, val, selectedCouponCode);
   };
 
   // Handle coupon change
   const handleCouponChange = (couponCode: string) => {
     setSelectedCouponCode(couponCode);
-    computeAndSetTotalCost(calculatedSum, discountPercent, couponCode);
+    computeAndSetTotalCost(discountableSubtotal, exemptSubtotal, discountPercent, couponCode);
   };
 
   // Dynamic financing calculations
@@ -521,6 +566,26 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
       city: city.trim() || undefined,
       campaign: chosenCampaign || undefined,
       procedure: chosenProcedure,
+      procedureItems: [
+        ...selectedProcedures.map((p) => ({
+          id: p.id,
+          code: p.code,
+          name: p.name,
+          category: p.category,
+          basePrice: p.basePrice,
+          isExtra: p.category === 'Extra',
+        })),
+        ...(includeCustomProcedure && customProcedureName.trim() && Number(customProcedurePrice) > 0
+          ? [
+              {
+                name: customProcedureName.trim(),
+                category: customProcedureCategory,
+                basePrice: Number(customProcedurePrice),
+                isExtra: customProcedureCategory === 'Extra',
+              },
+            ]
+          : []),
+      ],
       doctor: branding?.doctorName || 'Dr. Jorge Apelencia',
       totalCost: cost,
       totalPaid: initialPaid,
@@ -531,7 +596,10 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
       notes: [
         notes.trim(),
         combinedTotalDiscount > 0
-          ? `Beneficio/Descuento: ${discountPercent ? `${discountPercent}% comercial (-$${percentDiscountAmount})` : ''} ${selectedCouponCode ? `+ Cupón ${selectedCouponCode} (-$${couponDiscountAmount})` : ''}. Total ahorrado: -$${combinedTotalDiscount} USD sobre subtotal original de $${calculatedSum} USD.`
+          ? `Beneficio/Descuento: ${discountPercent ? `${discountPercent}% comercial (-$${percentDiscountAmount})` : ''} ${selectedCouponCode ? `+ Cupón ${selectedCouponCode} (-$${couponDiscountAmount})` : ''}. Total ahorrado: -$${combinedTotalDiscount} USD sobre base sujeta de $${discountableSubtotal} USD.`
+          : '',
+        exemptSubtotal > 0
+          ? `Conceptos Categoría Extra exentos de descuento: $${exemptSubtotal.toLocaleString('es-AR')} USD.`
           : '',
         deferralDays > 0
           ? `Diferimiento de 1ª Cuota concedido: ${deferralDays} días de aplazamiento (1er vencimiento acordado: ${calculatedFirstDueDate || firstPaymentDate}).`
@@ -540,6 +608,8 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
         .filter(Boolean)
         .join(' • '),
       originalSubtotal: calculatedSum,
+      discountableSubtotal: discountableSubtotal,
+      exemptSubtotal: exemptSubtotal,
       discountPercent: Number(discountPercent) || 0,
       discountAmount: percentDiscountAmount,
       couponCode: selectedCouponCode || undefined,
@@ -823,11 +893,17 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                                   ? 'bg-blue-50 text-blue-700 border border-blue-200'
                                   : proc.category === 'Corporal'
                                   ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-amber-50 text-amber-800 border border-amber-300 font-semibold'
                               }`}
                             >
                               {proc.category}
                             </span>
+                            {proc.category === 'Extra' && (
+                              <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                <ShieldAlert className="w-2.5 h-2.5 mr-0.5 text-amber-700" />
+                                Exento de descuento
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center space-x-2 text-[10px] text-slate-400 mt-0.5">
                             <span>{proc.code}</span>
@@ -871,7 +947,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                 </label>
 
                 {includeCustomProcedure && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 px-2 pb-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mt-2 px-2 pb-1">
                     <div className="sm:col-span-2">
                       <input
                         type="text"
@@ -880,6 +956,27 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                         onChange={(e) => setCustomProcedureName(e.target.value)}
                         className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-[#25D366]"
                       />
+                    </div>
+                    <div>
+                      <select
+                        value={customProcedureCategory}
+                        onChange={(e) => {
+                          const newCat = e.target.value as 'Facial' | 'Corporal' | 'Extra';
+                          setCustomProcedureCategory(newCat);
+                          const { disc, exm } = getSubtotalsForProcs(
+                            selectedProcedures,
+                            includeCustomProcedure,
+                            newCat,
+                            customProcedurePrice
+                          );
+                          computeAndSetTotalCost(disc, exm, discountPercent, selectedCouponCode);
+                        }}
+                        className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-[#25D366] text-slate-800"
+                      >
+                        <option value="Corporal">Corporal</option>
+                        <option value="Facial">Facial</option>
+                        <option value="Extra">Extra (Exento)</option>
+                      </select>
                     </div>
                     <div>
                       <input
@@ -899,26 +996,52 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
             {/* Dynamic Sum & Selection Breakdown */}
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-2xs">
               <div className="min-w-0">
-                <div className="flex items-center space-x-1.5">
+                <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                   <span className="text-xs font-bold text-emerald-950">
-                    Suma Total Calculada:
+                    Suma Total Bruta:
                   </span>
                   <span className="text-sm font-extrabold text-emerald-800">
-                    ${calculatedSum.toLocaleString('es-AR')}
+                    ${calculatedSum.toLocaleString('es-AR')} USD
                   </span>
+                  {exemptSubtotal > 0 && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                      <ShieldAlert className="w-3 h-3 mr-1 text-amber-700" />
+                      ${exemptSubtotal.toLocaleString('es-AR')} USD exentos de desc. (Extra)
+                    </span>
+                  )}
                 </div>
-                <div className="flex flex-wrap gap-1 mt-1">
+                <div className="flex flex-wrap gap-1 mt-1.5">
                   {selectedProcedures.map((p) => (
                     <span
                       key={p.id}
-                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-white border border-emerald-300 text-emerald-900 font-medium"
+                      className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] border font-medium ${
+                        p.category === 'Extra'
+                          ? 'bg-amber-50 border-amber-300 text-amber-950'
+                          : 'bg-white border-emerald-300 text-emerald-900'
+                      }`}
                     >
-                      {p.name}
+                      <span>{p.name}</span>
+                      {p.category === 'Extra' && (
+                        <span className="text-[9px] font-bold text-amber-800 bg-amber-100/90 px-1 rounded">
+                          Exento
+                        </span>
+                      )}
                     </span>
                   ))}
                   {includeCustomProcedure && customProcedureName && (
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-white border border-emerald-300 text-emerald-900 font-medium">
-                      {customProcedureName}
+                    <span
+                      className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] border font-medium ${
+                        customProcedureCategory === 'Extra'
+                          ? 'bg-amber-50 border-amber-300 text-amber-950'
+                          : 'bg-white border-emerald-300 text-emerald-900'
+                      }`}
+                    >
+                      <span>{customProcedureName}</span>
+                      {customProcedureCategory === 'Extra' && (
+                        <span className="text-[9px] font-bold text-amber-800 bg-amber-100/90 px-1 rounded">
+                          Exento
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
@@ -927,7 +1050,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  computeAndSetTotalCost(calculatedSum, discountPercent, selectedCouponCode);
+                  computeAndSetTotalCost(discountableSubtotal, exemptSubtotal, discountPercent, selectedCouponCode);
                 }}
                 className="shrink-0 text-[11px] font-semibold text-emerald-800 bg-white hover:bg-emerald-100 border border-emerald-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
                 title="Sincronizar el presupuesto con la suma de las cirugías y descuentos"
@@ -950,6 +1073,19 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                 Permite % + Cupón a la vez
               </span>
             </div>
+
+            {/* Alerta explicativa si hay items exentos de categoría Extra */}
+            {exemptSubtotal > 0 && (
+              <div className="p-2.5 bg-amber-50 border border-amber-300/80 rounded-lg text-xs text-amber-900 flex items-start space-x-2 shadow-2xs">
+                <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Regla Especial Categoría Extra:</span> Los procedimientos catalogados como{' '}
+                  <strong className="underline">Extra</strong> (${exemptSubtotal.toLocaleString('es-AR')} USD) están{' '}
+                  <strong>exentos de cualquier descuento</strong>. Los beneficios de porcentaje y cupón aplican{' '}
+                  <span className="font-bold">únicamente sobre la base sujeta de ${discountableSubtotal.toLocaleString('es-AR')} USD</span>.
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* 1. Porcentaje de Descuento sobre Cirugía */}
@@ -1039,14 +1175,17 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
             </div>
 
             {/* Resumen de Liquidación de Descuentos Combinados */}
-            {combinedTotalDiscount > 0 && (
+            {(combinedTotalDiscount > 0 || exemptSubtotal > 0) && (
               <div className="p-2.5 bg-emerald-100/60 rounded-lg border border-emerald-300 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex items-center space-x-2 text-emerald-900 font-medium">
+                <div className="flex items-center space-x-2 text-emerald-900 font-medium flex-wrap gap-y-1">
                   <Check className="w-4 h-4 text-emerald-700 shrink-0" />
                   <span>
-                    Subtotal: <strong>${calculatedSum.toLocaleString('es-AR')}</strong>
+                    Base Sujeta: <strong>${discountableSubtotal.toLocaleString('es-AR')}</strong>
+                    {exemptSubtotal > 0 && (
+                      <> • Exento Extra: <strong className="text-amber-800">+${exemptSubtotal.toLocaleString('es-AR')}</strong></>
+                    )}
                     {percentDiscountAmount > 0 && (
-                      <> • Descuento {discountPercent}%: <strong className="text-emerald-800">-${percentDiscountAmount.toLocaleString('es-AR')}</strong></>
+                      <> • Desc. {discountPercent}%: <strong className="text-emerald-800">-${percentDiscountAmount.toLocaleString('es-AR')}</strong></>
                     )}
                     {couponDiscountAmount > 0 && (
                       <> • Cupón ({selectedCouponCode}): <strong className="text-blue-800">-${couponDiscountAmount.toLocaleString('es-AR')}</strong></>
@@ -1054,11 +1193,13 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs font-bold text-emerald-900 bg-white px-2 py-0.5 rounded border border-emerald-300">
-                    Ahorro Total: -${combinedTotalDiscount.toLocaleString('es-AR')} USD
-                  </span>
+                  {combinedTotalDiscount > 0 && (
+                    <span className="text-xs font-bold text-emerald-900 bg-white px-2 py-0.5 rounded border border-emerald-300">
+                      Ahorro: -${combinedTotalDiscount.toLocaleString('es-AR')} USD
+                    </span>
+                  )}
                   <span className="text-xs font-black text-slate-900 bg-emerald-200 px-2 py-0.5 rounded border border-emerald-400">
-                    Neto: ${netCalculatedTotal.toLocaleString('es-AR')} USD
+                    Neto Presupuestado: ${netCalculatedTotal.toLocaleString('es-AR')} USD
                   </span>
                 </div>
               </div>
