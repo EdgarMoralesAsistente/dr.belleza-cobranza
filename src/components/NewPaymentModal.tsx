@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, DollarSign, Calendar, Check, MessageCircle, AlertCircle, Search, FileDown, Calculator } from 'lucide-react';
 import { Patient, Payment } from '../types';
 import { downloadReceiptPDF } from '../services/pdfReport';
-import { recalculatePatientOnPayment } from '../services/storage';
+import { recalculatePatientOnPayment, loadLocalPayments } from '../services/storage';
 
 interface NewPaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   patients: Patient[];
+  payments?: Payment[];
   preselectedPatientId?: string;
   onSavePayment: (payment: Omit<Payment, 'id' | 'createdAt'>, openWhatsAppReceipt: boolean) => void;
 }
@@ -16,9 +17,11 @@ export const NewPaymentModal: React.FC<NewPaymentModalProps> = ({
   isOpen,
   onClose,
   patients,
+  payments: paymentsProp,
   preselectedPatientId,
   onSavePayment,
 }) => {
+  const currentPayments = useMemo(() => paymentsProp || loadLocalPayments(), [paymentsProp]);
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [amount, setAmount] = useState<number | ''>('');
@@ -90,10 +93,12 @@ export const NewPaymentModal: React.FC<NewPaymentModalProps> = ({
 
     // Calculate projected totals and re-amortized schedule
     const updatedPatient = recalculatePatientOnPayment(selectedPatient, numericAmount, date);
+    const patientExistingPayments = currentPayments.filter((p) => p.patientId === selectedPatient.id);
 
     downloadReceiptPDF({
       patient: updatedPatient,
       payment: receiptPayment,
+      allPayments: [receiptPayment, ...patientExistingPayments],
       type: 'payment',
     });
   };
@@ -291,18 +296,66 @@ export const NewPaymentModal: React.FC<NewPaymentModalProps> = ({
           </div>
 
           {/* Recalculation Notice when amount > 0 and patient selected */}
-          {selectedPatient && Number(amount) > 0 && (
-            <div className="p-2.5 bg-blue-50/90 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start space-x-2 shadow-2xs">
-              <Calculator className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">Recálculo automático de cuotas:</span> Este abono de{' '}
-                <strong>${Number(amount).toLocaleString('es-AR')} USD</strong> afectará el saldo total{' '}
-                (nuevo saldo proyectado:{' '}
-                <strong>${Math.max(0, selectedPatient.balance - Number(amount)).toLocaleString('es-AR')} USD</strong>).{' '}
-                Las futuras cuotas pendientes se recalcularán equitativamente en el cronograma y en el CRM.
+          {selectedPatient && Number(amount) > 0 && (() => {
+            const numAmt = Number(amount);
+            const reamortized = recalculatePatientOnPayment(selectedPatient, numAmt, date);
+            const pendingBefore = selectedPatient.paymentSchedule?.filter((s) => s.status !== 'paid') || [];
+            const pendingAfter = reamortized.paymentSchedule?.filter((s) => s.status !== 'paid') || [];
+            const oldQuota = selectedPatient.financingInstallmentAmount || (pendingBefore[0]?.amount || 0);
+            const newQuota = reamortized.financingInstallmentAmount || (pendingAfter[0]?.amount || 0);
+            const isFullPayoff = reamortized.balance <= 0;
+            const isAmortizing = !isFullPayoff && oldQuota > 0 && newQuota < oldQuota;
+
+            return (
+              <div
+                className={`p-3 rounded-xl text-xs flex items-start space-x-2.5 border shadow-2xs ${
+                  isFullPayoff
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                    : isAmortizing
+                    ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
+                    : 'bg-blue-50/90 border-blue-200 text-blue-900'
+                }`}
+              >
+                <Calculator
+                  className={`w-4 h-4 shrink-0 mt-0.5 ${
+                    isFullPayoff || isAmortizing ? 'text-emerald-600' : 'text-blue-600'
+                  }`}
+                />
+                <div className="space-y-1">
+                  {isFullPayoff ? (
+                    <div>
+                      <span className="font-bold text-emerald-800">🎉 ¡Cancelación Total de Saldo!</span>
+                      <p className="mt-0.5 text-emerald-700">
+                        Este abono de <strong>${numAmt.toLocaleString('es-AR')} USD</strong> cancela el 100% de la deuda.
+                        Todas las cuotas pendientes del cronograma quedarán automáticamente saldadas ($0 saldo).
+                      </p>
+                    </div>
+                  ) : isAmortizing ? (
+                    <div>
+                      <span className="font-bold text-emerald-800 flex items-center gap-1">
+                        ✨ ¡Amortización Automática de Cuotas Pendientes!
+                      </span>
+                      <p className="mt-0.5 text-emerald-800 leading-relaxed">
+                        Este abono de <strong>${numAmt.toLocaleString('es-AR')} USD</strong> supera la cuota estipulada (${oldQuota.toLocaleString('es-AR')} USD).
+                        El saldo restante de <strong>${reamortized.balance.toLocaleString('es-AR')} USD</strong> se amortiza entre las{' '}
+                        <strong>{pendingAfter.length} cuotas pendientes</strong>, reduciendo el monto de cada cuota de{' '}
+                        <span className="line-through text-slate-500 font-semibold">${oldQuota.toLocaleString('es-AR')} USD</span> a{' '}
+                        <strong className="text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-extrabold">${newQuota.toLocaleString('es-AR')} USD / cuota</strong>.
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="font-bold">Abono y actualización de saldo:</span>
+                      <p className="mt-0.5">
+                        Este abono de <strong>${numAmt.toLocaleString('es-AR')} USD</strong> reduce el saldo restante a{' '}
+                        <strong>${reamortized.balance.toLocaleString('es-AR')} USD</strong>. El estado de cuenta y las cuotas pendientes se actualizarán en el PDF.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Método de Pago */}
           <div>

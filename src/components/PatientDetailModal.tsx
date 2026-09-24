@@ -336,23 +336,52 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
                         <tr>
                           <th className="py-1.5 px-3">Cuota</th>
                           <th className="py-1.5 px-3">Vencimiento</th>
+                          <th className="py-1.5 px-3 text-center">Estado</th>
                           <th className="py-1.5 px-3 text-right">Monto</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {patient.paymentSchedule.map((p) => (
-                          <tr key={p.installmentNumber} className="hover:bg-slate-50">
-                            <td className="py-1.5 px-3 font-semibold text-slate-700 text-[11px]">
-                              Cuota #{p.installmentNumber}
-                            </td>
-                            <td className="py-1.5 px-3 text-slate-600 text-[11px]">
-                              {p.dueDate}
-                            </td>
-                            <td className="py-1.5 px-3 text-right font-bold text-slate-900 text-[11px]">
-                              ${p.amount.toLocaleString()} USD
-                            </td>
-                          </tr>
-                        ))}
+                        {patient.paymentSchedule.map((p) => {
+                          const isPaid = p.status === 'paid';
+                          const isOverdue = !isPaid && p.dueDate && p.dueDate < new Date().toISOString().split('T')[0];
+                          const isAmortized = p.notes?.includes('reducida') || p.notes?.includes('amortización');
+
+                          return (
+                            <tr key={p.installmentNumber} className="hover:bg-slate-50">
+                              <td className="py-1.5 px-3 font-semibold text-slate-700 text-[11px]">
+                                <div className="flex items-center space-x-1.5">
+                                  <span>Cuota #{p.installmentNumber}</span>
+                                  {isAmortized && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      Amortizada
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-1.5 px-3 text-slate-600 text-[11px]">
+                                {p.dueDate}
+                              </td>
+                              <td className="py-1.5 px-3 text-center">
+                                {isPaid ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                    PAGADA
+                                  </span>
+                                ) : isOverdue ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">
+                                    VENCIDA
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                    PENDIENTE
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-3 text-right font-bold text-slate-900 text-[11px]">
+                                ${p.amount.toLocaleString()} USD
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

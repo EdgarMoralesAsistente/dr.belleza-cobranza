@@ -907,9 +907,82 @@ export function getPatientProcedureBreakdown(
 }
 
 /**
+ * Construye o reconstruye el cronograma completo de cuotas de una paciente según su plan de financiamiento.
+ */
+export function buildInitialPaymentSchedule(patient: Patient): ScheduledPayment[] {
+  if (patient.paymentSchedule && patient.paymentSchedule.length > 0) {
+    return patient.paymentSchedule.map((s) => ({ ...s }));
+  }
+
+  const frequency = patient.financingFrequency || 'Mensual';
+  let totalCount = patient.financingInstallmentsCount || 0;
+  if (!totalCount && patient.financingMonths) {
+    totalCount = frequency === 'Quincenal' ? patient.financingMonths * 2 : frequency === 'Semanal' ? patient.financingMonths * 4 : patient.financingMonths;
+  }
+  if (!totalCount && patient.financingPlanName) {
+    const match = patient.financingPlanName.match(/(\d+)\s*(?:mes|meses|cuota|cuotas)/i);
+    if (match) {
+      const parsed = parseInt(match[1], 10);
+      totalCount = frequency === 'Quincenal' ? parsed * 2 : frequency === 'Semanal' ? parsed * 4 : parsed;
+    }
+  }
+  if (!totalCount && patient.financingPlanId) {
+    const planMatch = INITIAL_FINANCING_PLANS.find((p) => p.id === patient.financingPlanId);
+    if (planMatch) totalCount = planMatch.installmentsCount;
+  }
+  if (!totalCount && patient.financingInstallmentAmount && patient.financingInstallmentAmount > 0) {
+    totalCount = Math.max(1, Math.round(patient.totalCost / patient.financingInstallmentAmount));
+  }
+  if (!totalCount) {
+    totalCount = patient.totalCost > 1500 ? 6 : patient.totalCost > 500 ? 3 : 1;
+  }
+
+  const baseDate = patient.nextPaymentDate ? new Date(patient.nextPaymentDate) : new Date();
+  const schedule: ScheduledPayment[] = [];
+  const baseCost = patient.totalCost;
+  const baseAmount = Math.floor(baseCost / totalCount);
+  const remainder = baseCost - baseAmount * totalCount;
+
+  for (let i = 0; i < totalCount; i++) {
+    const nextDate = new Date(baseDate);
+    if (frequency === 'Semanal') {
+      nextDate.setDate(nextDate.getDate() + i * 7);
+    } else if (frequency === 'Quincenal') {
+      nextDate.setDate(nextDate.getDate() + i * 15);
+    } else {
+      nextDate.setMonth(nextDate.getMonth() + i);
+    }
+
+    schedule.push({
+      installmentNumber: i + 1,
+      dueDate: nextDate.toISOString().split('T')[0],
+      amount: i === totalCount - 1 ? baseAmount + remainder : baseAmount,
+      status: 'pending',
+    });
+  }
+
+  // Si la paciente ya tenía algún totalPaid previo, marcar las cuotas correspondientes como pagadas
+  if (patient.totalPaid > 0) {
+    let paidCover = patient.totalPaid;
+    for (let i = 0; i < schedule.length; i++) {
+      if (paidCover >= schedule[i].amount) {
+        schedule[i].status = 'paid';
+        paidCover -= schedule[i].amount;
+      } else if (paidCover > 0) {
+        schedule[i].amount = Math.max(0, schedule[i].amount - paidCover);
+        paidCover = 0;
+      }
+    }
+  }
+
+  return schedule;
+}
+
+/**
  * Recalcula el saldo total y el monto de las futuras cuotas pendientes cuando una paciente
- * realiza un pago, garantizando que si el pago es superior (o modifica el saldo), las cuotas
- * pendientes se recalculen de manera equitativa según el nuevo saldo remanente.
+ * realiza un pago. Si el pago supera el valor establecido de la cuota (o amortiza deuda),
+ * el saldo remanente se distribuye equitativamente reduciendo el monto de TODAS las cuotas
+ * pendientes futuras en el cronograma.
  */
 export function recalculatePatientOnPayment(
   patient: Patient,
@@ -921,19 +994,17 @@ export function recalculatePatientOnPayment(
   const newStatus: Patient['status'] =
     newBalance <= 0 ? 'paid' : patient.status === 'overdue' ? 'pending' : patient.status;
 
-  // Clonar el cronograma si existe
-  let schedule: ScheduledPayment[] = patient.paymentSchedule
-    ? patient.paymentSchedule.map((s) => ({ ...s }))
-    : [];
+  // Obtener o construir el cronograma completo de la paciente
+  let schedule = buildInitialPaymentSchedule(patient);
 
   if (schedule.length > 0) {
-    // Buscar la primera cuota que aún no esté pagada
+    // Buscar la primera cuota pendiente
     const firstPendingIdx = schedule.findIndex((s) => s.status !== 'paid');
 
     if (firstPendingIdx !== -1) {
-      // Marcar esta cuota actual como pagada
+      // Marcar esta cuota actual como pagada con el abono registrado
       schedule[firstPendingIdx].status = 'paid';
-      schedule[firstPendingIdx].notes = `Abono registrado: $${paymentAmount.toLocaleString('es-AR')} USD el ${paymentDate}`;
+      schedule[firstPendingIdx].notes = `Abono de $${paymentAmount.toLocaleString('es-AR')} USD registrado el ${paymentDate}`;
 
       // Cuotas pendientes posteriores a la que se acaba de abonar
       const futureInstallments = schedule
@@ -941,14 +1012,15 @@ export function recalculatePatientOnPayment(
         .filter((s) => s.status !== 'paid');
 
       if (newBalance <= 0) {
-        // Cuenta totalmente saldada: todas las futuras cuotas se cancelan y van a $0
+        // Cuenta totalmente saldada: todas las futuras cuotas se cancelan a $0
         futureInstallments.forEach((inst) => {
           inst.status = 'paid';
           inst.amount = 0;
           inst.notes = 'Cancelada por saldo total anticipado';
         });
       } else if (futureInstallments.length > 0) {
-        // Distribuir el nuevo saldo remanente equitativamente entre las cuotas futuras pendientes
+        // AMORTIZACIÓN AUTOMÁTICA:
+        // Distribuir el nuevo saldo remanente equitativamente entre TODAS las cuotas futuras pendientes
         const count = futureInstallments.length;
         const baseAmt = Math.floor(newBalance / count);
         const remainder = newBalance - baseAmt * count;
@@ -956,9 +1028,10 @@ export function recalculatePatientOnPayment(
         futureInstallments.forEach((inst, idx) => {
           inst.amount = baseAmt + (idx === count - 1 ? remainder : 0);
           inst.status = 'pending';
+          inst.notes = 'Cuota reducida por amortización de abono extraordinario';
         });
       } else {
-        // No quedaban más cuotas en el cronograma pero aún hay saldo pendiente
+        // No quedaban cuotas pero aún resta saldo pendiente
         schedule.push({
           installmentNumber: schedule.length + 1,
           dueDate: patient.nextPaymentDate || paymentDate,
@@ -981,7 +1054,7 @@ export function recalculatePatientOnPayment(
     }
   }
 
-  // Buscar la siguiente cuota pendiente
+  // Buscar la siguiente cuota pendiente y su nuevo monto reducido
   const remainingPendingInstallments = schedule.filter((s) => s.status !== 'paid');
   const nextPending = remainingPendingInstallments[0];
   const newInstallmentAmount =

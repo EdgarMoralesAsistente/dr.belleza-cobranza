@@ -1637,6 +1637,7 @@ export default function App() {
         isOpen={isNewPaymentModalOpen}
         onClose={() => setIsNewPaymentModalOpen(false)}
         patients={patients}
+        payments={payments}
         preselectedPatientId={preselectedPatientIdForPayment}
         onSavePayment={handleSavePayment}
       />
