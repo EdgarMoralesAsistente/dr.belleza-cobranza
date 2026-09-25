@@ -42,6 +42,7 @@ export interface Patient {
   doctor: string; // default: Dr. Jorge Apelencia
   totalCost: number; // Monto total acordado
   totalPaid: number; // Total abonado
+  initialPayment?: number; // Total entregado como abono inicial pactado
   balance: number; // Saldo pendiente (totalCost - totalPaid)
   registrationDate: string; // YYYY-MM-DD
   status: 'pending' | 'paid' | 'overdue'; // pendiente, al día/pagado, vencido

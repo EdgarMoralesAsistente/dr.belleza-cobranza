@@ -155,6 +155,7 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({
                               downloadReceiptPDF({
                                 patient,
                                 payment: p,
+                                allPayments: payments.filter((x) => x.patientId === patient.id),
                                 type: 'payment',
                               });
                             }

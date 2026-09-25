@@ -105,19 +105,26 @@ const INITIAL_PATIENTS: Patient[] = [
     campaign: 'Instagram Ads - Rinoplastia',
     procedure: 'Rinoplastia Ultrasónica Estructural',
     doctor: 'Dr. Jorge Apelencia',
-    totalCost: 3200,
-    totalPaid: 2000,
-    balance: 1200,
+    originalSubtotal: 3200,
+    discountPercent: 10,
+    discountAmount: 320,
+    couponCode: 'BONO-BIENVENIDA',
+    couponDiscount: 180,
+    totalDiscount: 500,
+    totalCost: 2700,
+    totalPaid: 1000,
+    initialPayment: 1000,
+    balance: 1700,
     registrationDate: '2026-08-10',
     nextPaymentDate: '2026-09-15',
     status: 'pending',
-    notes: 'Presupuesto congelado. Saldo restante contra fecha quirúrgica de Octubre.',
+    notes: 'Presupuesto con 10% descuento comercial ($320 USD) y Bono de Bienvenida ($180 USD). Saldo restante diferido en cuotas.',
     financingPlanId: 'PLAN-001',
     financingPlanName: 'Plan 6 Meses - Mensual (Sin Interés)',
     financingMonths: 6,
     financingFrequency: 'Mensual',
     financingInstallmentsCount: 6,
-    financingInstallmentAmount: 200,
+    financingInstallmentAmount: 283.33,
   },
   {
     id: 'PAC-1002',
@@ -129,18 +136,25 @@ const INITIAL_PATIENTS: Patient[] = [
     campaign: 'Google Ads Search',
     procedure: 'Lipoescultura HD con Marcación',
     doctor: 'Dr. Jorge Apelencia',
-    totalCost: 4500,
-    totalPaid: 4500,
+    originalSubtotal: 4500,
+    discountPercent: 10,
+    discountAmount: 450,
+    couponCode: 'BONO-CONTADO',
+    couponDiscount: 50,
+    totalDiscount: 500,
+    totalCost: 4000,
+    totalPaid: 4000,
+    initialPayment: 2500,
     balance: 0,
     registrationDate: '2026-08-01',
     status: 'paid',
-    notes: 'Cancelación total completada. Quirófano asignado para el 20 de Septiembre.',
+    notes: 'Cancelación total completada ($4,000 USD). Bono contado aplicado. Quirófano asignado para el 20 de Septiembre.',
     financingPlanId: 'PLAN-006',
     financingPlanName: 'Pago Contado / En Una Sola Cuota',
     financingMonths: 1,
     financingFrequency: 'Mensual',
     financingInstallmentsCount: 1,
-    financingInstallmentAmount: 4500,
+    financingInstallmentAmount: 4000,
   },
   {
     id: 'PAC-1003',
@@ -152,19 +166,26 @@ const INITIAL_PATIENTS: Patient[] = [
     campaign: 'TikTok Ads - Cirugías',
     procedure: 'Mamoplastia de Aumento (Mentor 350cc)',
     doctor: 'Dr. Jorge Apelencia',
-    totalCost: 3800,
+    originalSubtotal: 3800,
+    discountPercent: 10,
+    discountAmount: 380,
+    couponCode: 'BONO-MAMO',
+    couponDiscount: 220,
+    totalDiscount: 600,
+    totalCost: 3200,
     totalPaid: 1500,
-    balance: 2300,
+    initialPayment: 1500,
+    balance: 1700,
     registrationDate: '2026-08-20',
     nextPaymentDate: '2026-09-10',
     status: 'pending',
-    notes: 'Abonó reserva de prótesis y reserva de quirófano. Cuota 2 pendiente.',
+    notes: 'Abonó reserva de prótesis y quirófano ($1,500). Descuento 10% ($380) + Bono ($220). Cuota 2 pendiente.',
     financingPlanId: 'PLAN-003',
     financingPlanName: 'Plan 12 Meses - Quincenal',
     financingMonths: 12,
     financingFrequency: 'Quincenal',
     financingInstallmentsCount: 24,
-    financingInstallmentAmount: 95.83,
+    financingInstallmentAmount: 70.83,
   },
   {
     id: 'PAC-1004',
@@ -176,8 +197,10 @@ const INITIAL_PATIENTS: Patient[] = [
     campaign: 'Referido de Paciente',
     procedure: 'Armonización Facial (Bótox + Ácido Hialurónico)',
     doctor: 'Dr. Jorge Apelencia',
+    originalSubtotal: 950,
     totalCost: 950,
     totalPaid: 950,
+    initialPayment: 950,
     balance: 0,
     registrationDate: '2026-09-02',
     status: 'paid',
@@ -199,19 +222,26 @@ const INITIAL_PATIENTS: Patient[] = [
     campaign: 'Campaña Blefaro Verano',
     procedure: 'Blefaroplastia Superior e Inferior',
     doctor: 'Dr. Jorge Apelencia',
-    totalCost: 2100,
+    originalSubtotal: 2100,
+    discountPercent: 10,
+    discountAmount: 210,
+    couponCode: 'VERANO2026',
+    couponDiscount: 90,
+    totalDiscount: 300,
+    totalCost: 1800,
     totalPaid: 600,
-    balance: 1500,
+    initialPayment: 600,
+    balance: 1200,
     registrationDate: '2026-08-15',
     nextPaymentDate: '2026-09-05',
     status: 'overdue',
-    notes: 'Fecha de pago de saldo vencida hace 3 días. Enviar recordatorio WhatsApp.',
+    notes: 'Fecha de pago de saldo vencida hace 3 días. Descuento 10% ($210) + Bono ($90). Enviar recordatorio WhatsApp.',
     financingPlanId: 'PLAN-001',
     financingPlanName: 'Plan 6 Meses - Mensual (Sin Interés)',
     financingMonths: 6,
     financingFrequency: 'Mensual',
     financingInstallmentsCount: 6,
-    financingInstallmentAmount: 250,
+    financingInstallmentAmount: 200,
   },
   {
     id: 'PAC-1006',
@@ -231,6 +261,7 @@ const INITIAL_PATIENTS: Patient[] = [
     totalDiscount: 580,
     totalCost: 2620,
     totalPaid: 1500,
+    initialPayment: 1500,
     balance: 1120,
     registrationDate: '2026-08-12',
     nextPaymentDate: '2026-09-20',
@@ -475,29 +506,65 @@ export function loadLocalPatients(): Patient[] {
     const saved = localStorage.getItem(STORAGE_KEYS.PATIENTS);
     if (saved) {
       const list: Patient[] = JSON.parse(saved);
-      // Garantizar que el caso de referencia María Camila Silva tenga su descuento aplicado correctamente
-      const mariaIdx = list.findIndex(
-        (p) => p.fullName.toLowerCase().includes('camila silva') || p.id === 'PAC-1006'
-      );
-      if (mariaIdx >= 0) {
-        const maria = list[mariaIdx];
-        if (!maria.discountPercent || maria.totalCost === 3200) {
-          maria.originalSubtotal = 3200;
-          maria.discountPercent = 15;
-          maria.discountAmount = 480;
-          maria.couponCode = 'VERANO2026';
-          maria.couponDiscount = 100;
-          maria.totalDiscount = 580;
-          maria.totalCost = 2620;
-          maria.balance = Math.max(0, 2620 - (maria.totalPaid || 0));
-          list[mariaIdx] = maria;
+      // Normalizar pacientes iniciales para que reflejen correctamente los 4 pilares financieros
+      list.forEach((p) => {
+        if (p.id === 'PAC-1001' && (!p.totalDiscount || p.totalCost === 3200)) {
+          p.originalSubtotal = 3200;
+          p.discountPercent = 10;
+          p.discountAmount = 320;
+          p.couponCode = 'BONO-BIENVENIDA';
+          p.couponDiscount = 180;
+          p.totalDiscount = 500;
+          p.totalCost = 2700;
+          p.initialPayment = 1000;
+          p.totalPaid = 1000;
+          p.balance = 1700;
+        } else if (p.id === 'PAC-1002' && (!p.totalDiscount || p.totalCost === 4500)) {
+          p.originalSubtotal = 4500;
+          p.discountPercent = 10;
+          p.discountAmount = 450;
+          p.couponCode = 'BONO-CONTADO';
+          p.couponDiscount = 50;
+          p.totalDiscount = 500;
+          p.totalCost = 4000;
+          p.initialPayment = 2500;
+          p.totalPaid = 4000;
+          p.balance = 0;
+        } else if (p.id === 'PAC-1003' && (!p.totalDiscount || p.totalCost === 3800)) {
+          p.originalSubtotal = 3800;
+          p.discountPercent = 10;
+          p.discountAmount = 380;
+          p.couponCode = 'BONO-MAMO';
+          p.couponDiscount = 220;
+          p.totalDiscount = 600;
+          p.totalCost = 3200;
+          p.initialPayment = 1500;
+          p.totalPaid = 1500;
+          p.balance = 1700;
+        } else if (p.id === 'PAC-1005' && (!p.totalDiscount || p.totalCost === 2100)) {
+          p.originalSubtotal = 2100;
+          p.discountPercent = 10;
+          p.discountAmount = 210;
+          p.couponCode = 'VERANO2026';
+          p.couponDiscount = 90;
+          p.totalDiscount = 300;
+          p.totalCost = 1800;
+          p.initialPayment = 600;
+          p.totalPaid = 600;
+          p.balance = 1200;
+        } else if (p.id === 'PAC-1006' && (!p.discountPercent || p.totalCost === 3200)) {
+          p.originalSubtotal = 3200;
+          p.discountPercent = 15;
+          p.discountAmount = 480;
+          p.couponCode = 'VERANO2026';
+          p.couponDiscount = 100;
+          p.totalDiscount = 580;
+          p.totalCost = 2620;
+          p.initialPayment = 1500;
+          p.totalPaid = 1500;
+          p.balance = 1120;
         }
-      } else {
-        const mariaInitial = INITIAL_PATIENTS.find((p) => p.id === 'PAC-1006');
-        if (mariaInitial) {
-          list.push(mariaInitial);
-        }
-      }
+      });
       return list;
     }
   } catch (e) {
@@ -902,7 +969,141 @@ export function getPatientProcedureBreakdown(
     items,
     discountableSubtotal: Math.max(0, discountableSubtotal),
     exemptSubtotal: Math.max(0, exemptSubtotal),
-    grossSubtotal: patient.originalSubtotal || patient.totalCost,
+    grossSubtotal: patient.originalSubtotal || (patient.totalCost + (patient.totalDiscount || 0)),
+  };
+}
+
+export interface PatientFinancialSummary {
+  /** 1. Total del monto del plan de financiamiento: Total sin aplicar ningún tipo de descuento ni bono. */
+  totalPlanOriginal: number;
+  /** 2. Total Inicial: Total que la paciente pagó como inicial */
+  totalInicial: number;
+  /** 3. Total de Descuentos: Suma de todos los descuentos y bonos de descuentos aplicados a la paciente */
+  totalDiscount: number;
+  /** Total con Descuentos: Total Plan Financiamiento menos el total de descuentos aplicados */
+  totalConDescuentos: number;
+  /** 4. Saldo Pendiente: Total Plan de Financiamiento menos lo que pagó como inicial + descuentos aplicados */
+  saldoPendiente: number;
+  /** Total abonado acumulado a la fecha */
+  totalPaid: number;
+  /** Monto de descuento porcentual */
+  discountAmount?: number;
+  /** Porcentaje de descuento */
+  discountPercent?: number;
+  /** Monto de cupón o bono comercial */
+  couponDiscount?: number;
+  /** Código del cupón o bono */
+  couponCode?: string;
+}
+
+/**
+ * Calcula con máxima precisión los 4 pilares financieros del plan de financiamiento:
+ * 1. Total Plan Financiamiento: Total sin aplicar ningún tipo de descuento ni bono.
+ * 2. Total Inicial: Total que la paciente pagó como inicial.
+ * 3. Total de Descuentos: Suma de todos los descuentos y bonos de descuentos aplicados a la paciente.
+ * 4. Saldo Pendiente: Total Plan Financiamiento menos (lo que pagó como inicial + descuentos aplicados).
+ */
+export function getPatientFinancialSummary(
+  patient: Patient,
+  payments?: Payment[]
+): PatientFinancialSummary {
+  const breakdown = getPatientProcedureBreakdown(patient);
+
+  // 1. Total del monto del plan de financiamiento: Total sin aplicar ningún tipo de descuento ni bono.
+  // El monto que está mostrando en la tarjeta Total del Plan de Financiamiento está bien.
+  const totalPlanOriginal =
+    patient.originalSubtotal && patient.originalSubtotal > 0
+      ? patient.originalSubtotal
+      : (patient.totalDiscount && patient.totalDiscount > 0)
+      ? patient.totalCost + patient.totalDiscount
+      : breakdown.grossSubtotal && breakdown.grossSubtotal > 0
+      ? breakdown.grossSubtotal
+      : patient.totalCost;
+
+  // 2. Total Inicial: Total que la paciente pagó como inicial
+  let totalInicial = 0;
+  if (patient.initialPayment !== undefined && patient.initialPayment !== null && patient.initialPayment >= 0) {
+    totalInicial = patient.initialPayment;
+  } else if (payments && payments.length > 0) {
+    const patientPayments = payments.filter((p) => p.patientId === patient.id);
+    if (patientPayments.length > 0) {
+      const initialKwPayment = patientPayments.find((p) => {
+        const text = `${p.notes || ''} ${p.reference || ''}`.toLowerCase();
+        return (
+          text.includes('inicial') ||
+          text.includes('seña') ||
+          text.includes('sena') ||
+          text.includes('anticipo') ||
+          text.includes('reserva') ||
+          text.includes('primer abono')
+        );
+      });
+      if (initialKwPayment) {
+        totalInicial = initialKwPayment.amount;
+      } else {
+        const sorted = [...patientPayments].sort((a, b) => a.date.localeCompare(b.date));
+        totalInicial = sorted[0].amount;
+      }
+    }
+  } else if (patient.totalPaid > 0) {
+    totalInicial = patient.totalPaid;
+  }
+
+  // 3. Descuentos aplicados: (% de descuento + bonos de descuentos)
+  const discountPercent = Number(patient.discountPercent) || 0;
+  let percentDiscountAmount = 0;
+  if (patient.discountAmount !== undefined && patient.discountAmount > 0) {
+    percentDiscountAmount = patient.discountAmount;
+  } else if (discountPercent > 0) {
+    const baseForPercent =
+      patient.discountableSubtotal && patient.discountableSubtotal > 0
+        ? patient.discountableSubtotal
+        : totalPlanOriginal;
+    percentDiscountAmount = Math.round((baseForPercent * discountPercent) / 100);
+  }
+
+  const couponDiscountAmount = Number(patient.couponDiscount) || 0;
+
+  // Suma total de descuentos y bonos comerciales aplicados
+  let totalDescuentos = 0;
+  if (percentDiscountAmount > 0 || couponDiscountAmount > 0) {
+    totalDescuentos = percentDiscountAmount + couponDiscountAmount;
+  } else if (patient.totalDiscount !== undefined && patient.totalDiscount > 0) {
+    totalDescuentos = patient.totalDiscount;
+  } else if (patient.originalSubtotal && patient.originalSubtotal > patient.totalCost) {
+    totalDescuentos = patient.originalSubtotal - patient.totalCost;
+  } else if (totalPlanOriginal > patient.totalCost) {
+    totalDescuentos = totalPlanOriginal - patient.totalCost;
+  }
+
+  if (patient.totalDiscount && patient.totalDiscount > totalDescuentos) {
+    totalDescuentos = patient.totalDiscount;
+  }
+
+  // 3. Total con Descuentos:
+  // "En Total con descuento debe mostrar el resultado de:
+  //  Total Plan Financiamiento menos el total de descuentos aplicados (% de descuento + bonos de descuentos)"
+  const totalConDescuentos = Math.max(0, totalPlanOriginal - totalDescuentos);
+
+  // 4. Saldo Pendiente:
+  // "Y el la tarjeta: 'Saldo Pendiente': debe mostrar el resultado de:
+  //  Total Plan de Financiamiento menos lo que pagó como inicial + descuentos aplicados."
+  // Si la paciente ya ha amortizado abonos adicionales además de la cuota inicial (totalPaid > totalInicial),
+  // se deduce el total abonado para que el saldo pendiente real esté amortizado y al día.
+  const paidDeduction = Math.max(totalInicial, patient.totalPaid || 0);
+  const saldoPendiente = Math.max(0, totalPlanOriginal - (paidDeduction + totalDescuentos));
+
+  return {
+    totalPlanOriginal,
+    totalInicial,
+    totalConDescuentos,
+    saldoPendiente,
+    totalPaid: patient.totalPaid || 0,
+    totalDiscount: totalDescuentos,
+    discountAmount: percentDiscountAmount,
+    discountPercent,
+    couponDiscount: couponDiscountAmount,
+    couponCode: patient.couponCode,
   };
 }
 

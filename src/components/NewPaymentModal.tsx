@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, DollarSign, Calendar, Check, MessageCircle, AlertCircle, Search, FileDown, Calculator } from 'lucide-react';
 import { Patient, Payment } from '../types';
 import { downloadReceiptPDF } from '../services/pdfReport';
-import { recalculatePatientOnPayment, loadLocalPayments } from '../services/storage';
+import { recalculatePatientOnPayment, loadLocalPayments, getPatientFinancialSummary } from '../services/storage';
 
 interface NewPaymentModalProps {
   isOpen: boolean;
@@ -220,48 +220,103 @@ export const NewPaymentModal: React.FC<NewPaymentModalProps> = ({
             </select>
           </div>
 
-          {/* Current Patient Status Card */}
-          {selectedPatient && (
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-slate-800">{selectedPatient.procedure}</p>
-                  <p className="text-slate-500">Tel: {selectedPatient.phone} {selectedPatient.idNumber ? `• DNI: ${selectedPatient.idNumber}` : ''}</p>
+          {/* Current Patient Status Card with the 4 Financial Cards */}
+          {selectedPatient && (() => {
+            const financialSummary = getPatientFinancialSummary(selectedPatient, currentPayments);
+            return (
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-800">{selectedPatient.procedure}</p>
+                    <p className="text-slate-500">Tel: {selectedPatient.phone} {selectedPatient.idNumber ? `• DNI: ${selectedPatient.idNumber}` : ''}</p>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
+                    {selectedPatient.financingPlanName || 'Plan Personalizado'}
+                  </span>
                 </div>
-                <div className="text-right">
-                  <p className="text-slate-500">Saldo Pendiente:</p>
-                  <p className={`font-bold text-sm ${selectedPatient.balance > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
-                    ${selectedPatient.balance.toLocaleString()} USD
-                  </p>
-                </div>
-              </div>
 
-              {/* Atajos de cuota y saldo */}
-              <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between flex-wrap gap-1.5">
-                <span className="text-[11px] text-slate-500 font-medium">Carga rápida:</span>
-                <div className="flex items-center space-x-1.5">
-                  {selectedPatient.financingInstallmentAmount && selectedPatient.financingInstallmentAmount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setAmount(selectedPatient.financingInstallmentAmount || 0)}
-                      className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 transition-colors cursor-pointer"
-                    >
-                      Cuota ${selectedPatient.financingInstallmentAmount.toLocaleString()}
-                    </button>
-                  ) : null}
-                  {selectedPatient.balance > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setAmount(selectedPatient.balance)}
-                      className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-200 text-slate-800 hover:bg-slate-300 transition-colors cursor-pointer"
-                    >
-                      Saldo Total ${selectedPatient.balance.toLocaleString()}
-                    </button>
-                  )}
+                {/* 4 Tarjetas Financieras */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Total Plan
+                    </span>
+                    <p className="text-xs sm:text-sm font-extrabold text-slate-900 mt-0.5">
+                      ${financialSummary.totalPlanOriginal.toLocaleString('es-AR')}
+                    </p>
+                    <span className="text-[8.5px] text-slate-400 block truncate">
+                      Sin desc. ni bonos
+                    </span>
+                  </div>
+
+                  <div className="p-2 bg-emerald-50/70 rounded-lg border border-emerald-200 shadow-2xs">
+                    <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-wider block">
+                      Total Inicial
+                    </span>
+                    <p className="text-xs sm:text-sm font-extrabold text-emerald-700 mt-0.5">
+                      ${financialSummary.totalInicial.toLocaleString('es-AR')}
+                    </p>
+                    <span className="text-[8.5px] text-emerald-600 block truncate">
+                      {financialSummary.totalInicial > 0 ? 'Abono inicial' : 'Sin inicial'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 bg-blue-50/70 rounded-lg border border-blue-200 shadow-2xs">
+                    <span className="text-[9px] font-bold text-blue-800 uppercase tracking-wider block">
+                      Total de Descuentos
+                    </span>
+                    <p className="text-xs sm:text-sm font-extrabold text-blue-900 mt-0.5">
+                      ${financialSummary.totalDiscount.toLocaleString('es-AR')}
+                    </p>
+                    <span className="text-[8.5px] text-blue-700 block truncate" title="Suma de descuentos y bonos de descuento aplicados">
+                      {financialSummary.totalDiscount > 0
+                        ? (financialSummary.discountPercent || financialSummary.couponDiscount
+                            ? `${financialSummary.discountPercent ? `${financialSummary.discountPercent}% dto` : ''}${financialSummary.discountPercent && financialSummary.couponDiscount ? ' + ' : ''}${financialSummary.couponDiscount ? `bono $${financialSummary.couponDiscount}` : ''}`
+                            : 'Descuentos aplicados')
+                        : 'Sin descuentos'}
+                    </span>
+                  </div>
+
+                  <div className={`p-2 rounded-lg border shadow-2xs ${financialSummary.saldoPendiente > 0 ? 'bg-amber-50/80 border-amber-200 text-amber-900' : 'bg-emerald-50/70 border-emerald-200 text-emerald-800'}`}>
+                    <span className={`text-[9px] font-bold uppercase tracking-wider block ${financialSummary.saldoPendiente > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                      Saldo Pendiente
+                    </span>
+                    <p className={`text-xs sm:text-sm font-extrabold mt-0.5 ${financialSummary.saldoPendiente > 0 ? 'text-amber-900' : 'text-emerald-700'}`}>
+                      ${financialSummary.saldoPendiente.toLocaleString('es-AR')}
+                    </p>
+                    <span className="text-[8.5px] text-slate-500 block truncate" title="Total Plan menos inicial y descuentos">
+                      {financialSummary.saldoPendiente > 0 ? 'Total Plan - inicial + dto' : 'Cancelado'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Atajos de cuota y saldo */}
+                <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between flex-wrap gap-1.5">
+                  <span className="text-[11px] text-slate-500 font-medium">Carga rápida:</span>
+                  <div className="flex items-center space-x-1.5">
+                    {selectedPatient.financingInstallmentAmount && selectedPatient.financingInstallmentAmount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setAmount(selectedPatient.financingInstallmentAmount || 0)}
+                        className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 transition-colors cursor-pointer"
+                      >
+                        Cuota ${selectedPatient.financingInstallmentAmount.toLocaleString()}
+                      </button>
+                    ) : null}
+                    {financialSummary.saldoPendiente > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setAmount(financialSummary.saldoPendiente)}
+                        className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-200 text-slate-800 hover:bg-slate-300 transition-colors cursor-pointer"
+                      >
+                        Saldo Total ${financialSummary.saldoPendiente.toLocaleString()}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Monto y Fecha */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

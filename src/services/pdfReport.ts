@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { Patient, Payment, Refund } from '../types';
-import { getPatientProcedureBreakdown, INITIAL_FINANCING_PLANS } from './storage';
+import { getPatientProcedureBreakdown, INITIAL_FINANCING_PLANS, getPatientFinancialSummary } from './storage';
 
 export interface MonthlyReportParams {
   year: number;
@@ -652,6 +652,7 @@ export function generateReceiptPDF({
 
   // 2. DETALLE DE CIRUGÍAS & PROCEDIMIENTOS CONTRATADOS
   const breakdown = getPatientProcedureBreakdown(patient);
+  const financialSummary = getPatientFinancialSummary(patient, allPayments);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
@@ -736,11 +737,14 @@ export function generateReceiptPDF({
     );
   }
 
-  if (patient.totalDiscount && patient.totalDiscount > 0) {
+  if (financialSummary.totalDiscount > 0) {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(5, 150, 105);
+    const discDetail = financialSummary.discountPercent
+      ? `${financialSummary.discountPercent}% comercial${financialSummary.couponDiscount ? ` + bono $${financialSummary.couponDiscount}` : ''}`
+      : 'comercial acordado';
     doc.text(
-      `• Descuento Total Otorgado: -$${patient.totalDiscount.toLocaleString('es-AR')} USD (Ahorro comercial aplicado a base sujeta)`,
+      `• Descuento Total Otorgado: -$${financialSummary.totalDiscount.toLocaleString('es-AR')} USD (${discDetail})`,
       18,
       currentY + 12.5
     );
@@ -838,50 +842,93 @@ export function generateReceiptPDF({
 
   currentY += planBoxHeight + 6;
 
-  // 4. RESUMEN CONTABLE: ESTADO DE CUENTA INTEGRAL A LA FECHA (4 CARDS)
+  // 4. RESUMEN CONTABLE: ESTADO DE CUENTA INTEGRAL A LA FECHA (4 CARDS OFICIALES)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(30, 41, 59);
   doc.text('BALANCE ECONÓMICO A LA FECHA', 14, currentY);
   currentY += 4;
 
-  const cardW = 43;
-  const cardH = 17;
-  const gap = 3.5;
+  const cardW = 42.6;
+  const cardH = 19;
+  const gap = 3.8;
   const startCardX = 14;
 
   const summaryCards = [
-    { label: 'Presupuesto Total Cirugía', val: `$${patient.totalCost.toLocaleString()} USD`, bg: [248, 250, 252], text: [30, 41, 59] },
-    { label: 'Total Abonado a la Fecha', val: `$${patient.totalPaid.toLocaleString()} USD`, bg: [240, 253, 244], text: [5, 150, 105] },
     {
-      label: 'Saldo Pendiente Actual',
-      val: `$${patient.balance.toLocaleString()} USD`,
-      bg: patient.balance > 0 ? [255, 251, 235] : [240, 253, 244],
-      text: patient.balance > 0 ? [180, 83, 9] : [5, 150, 105],
+      label: 'Total Plan Financiamiento',
+      sub: 'Sin descuentos ni bonos',
+      val: `$${financialSummary.totalPlanOriginal.toLocaleString('es-AR')} USD`,
+      bg: [248, 250, 252],
+      border: [203, 213, 225],
+      text: [30, 41, 59],
     },
     {
-      label: 'Estado de Cuenta',
-      val: patient.balance === 0 ? 'AL DÍA / SALDADO' : patient.status === 'overdue' ? 'VENCIDO' : 'EN PROCESO',
-      bg: patient.balance === 0 ? [240, 253, 244] : patient.status === 'overdue' ? [254, 242, 242] : [255, 251, 235],
-      text: patient.balance === 0 ? [5, 150, 105] : patient.status === 'overdue' ? [225, 29, 72] : [180, 83, 9],
+      label: 'Total Inicial',
+      sub: 'Total pagado como inicial',
+      val: `$${financialSummary.totalInicial.toLocaleString('es-AR')} USD`,
+      bg: [240, 253, 244],
+      border: [167, 243, 208],
+      text: [5, 150, 105],
+    },
+    {
+      label: 'Total de Descuentos',
+      sub:
+        financialSummary.totalDiscount > 0
+          ? (financialSummary.discountPercent || financialSummary.couponDiscount
+              ? `${financialSummary.discountPercent ? `${financialSummary.discountPercent}% dto` : ''}${financialSummary.discountPercent && financialSummary.couponDiscount ? ' + ' : ''}${financialSummary.couponDiscount ? `bono $${financialSummary.couponDiscount}` : ''}`
+              : 'Descuentos y bonos aplicados')
+          : 'Sin descuentos aplicados',
+      val: `$${financialSummary.totalDiscount.toLocaleString('es-AR')} USD`,
+      bg: [239, 246, 255],
+      border: [191, 219, 254],
+      text: [37, 99, 235],
+    },
+    {
+      label: 'Saldo Pendiente',
+      sub:
+        financialSummary.saldoPendiente > 0
+          ? 'Total Plan - inicial + desc.'
+          : 'Cuenta al día / Saldada',
+      val: `$${financialSummary.saldoPendiente.toLocaleString('es-AR')} USD`,
+      bg:
+        financialSummary.saldoPendiente > 0
+          ? [255, 251, 235]
+          : [240, 253, 244],
+      border:
+        financialSummary.saldoPendiente > 0
+          ? [254, 215, 170]
+          : [167, 243, 208],
+      text:
+        financialSummary.saldoPendiente > 0
+          ? [180, 83, 9]
+          : [5, 150, 105],
     },
   ];
 
   summaryCards.forEach((c, idx) => {
     const x = startCardX + idx * (cardW + gap);
     doc.setFillColor(c.bg[0], c.bg[1], c.bg[2]);
-    doc.setDrawColor(226, 232, 240);
+    doc.setDrawColor(c.border[0], c.border[1], c.border[2]);
     doc.roundedRect(x, currentY, cardW, cardH, 2, 2, 'FD');
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(100, 116, 139);
-    doc.text(c.label, x + 3.5, currentY + 5.5);
+    // Título / Categoría
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(51, 65, 85);
+    doc.text(c.label, x + 3, currentY + 4.8);
 
+    // Subtítulo / Condición
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(c.sub, x + 3, currentY + 8.8);
+
+    // Importe destacado
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(c.text[0], c.text[1], c.text[2]);
-    doc.text(c.val, x + 3.5, currentY + 12.5);
+    doc.text(c.val, x + 3, currentY + 15.5);
   });
 
   currentY += cardH + 7;
@@ -1108,8 +1155,8 @@ export function generateReceiptPDF({
     const hasAmortizedPending = pendingQuotas.some((q) => q.notes?.includes('reducida') || q.notes?.includes('amortización'));
     doc.text(
       hasAmortizedPending
-        ? `Saldo Total Pendiente por Cobrar: $${patient.balance.toLocaleString('es-AR')} USD • ${pendingQuotas.length} cuotas planificadas (amortizadas automáticamente por abonos recibidos)`
-        : `Saldo Total Pendiente por Cobrar: $${patient.balance.toLocaleString('es-AR')} USD • ${pendingQuotas.length} cuotas planificadas`,
+        ? `Saldo Total Pendiente por Cobrar: $${financialSummary.saldoPendiente.toLocaleString('es-AR')} USD • ${pendingQuotas.length} cuotas planificadas (amortizadas automáticamente por abonos recibidos)`
+        : `Saldo Total Pendiente por Cobrar: $${financialSummary.saldoPendiente.toLocaleString('es-AR')} USD • ${pendingQuotas.length} cuotas planificadas`,
       18,
       currentY + 3.5
     );

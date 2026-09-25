@@ -589,6 +589,7 @@ export const NewPatientModal: React.FC<NewPatientModalProps> = ({
       doctor: branding?.doctorName || 'Dr. Jorge Apelencia',
       totalCost: cost,
       totalPaid: initialPaid,
+      initialPayment: initialPaid,
       balance: balance,
       registrationDate: new Date().toISOString().split('T')[0],
       nextPaymentDate: calculatedFirstDueDate,

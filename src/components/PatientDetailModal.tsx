@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { Patient, Payment, Refund } from '../types';
 import { downloadReceiptPDF } from '../services/pdfReport';
-import { getPatientProcedureBreakdown } from '../services/storage';
+import { getPatientProcedureBreakdown, getPatientFinancialSummary } from '../services/storage';
 
 interface PatientDetailModalProps {
   isOpen: boolean;
@@ -52,6 +52,7 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
   const breakdown = getPatientProcedureBreakdown(patient);
   const patientPayments = payments.filter((p) => p.patientId === patient.id);
   const patientRefunds = refunds.filter((r) => r.patientId === patient.id);
+  const financialSummary = getPatientFinancialSummary(patient, payments);
 
   const isPaid = patient.balance <= 0;
 
@@ -123,39 +124,83 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 space-y-6 overflow-y-auto">
-          {/* Quick Info & Financial Status Banner */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                Presupuesto Total
-              </span>
-              <p className="text-xl font-bold text-slate-900 mt-0.5">
-                ${patient.totalCost.toLocaleString()}
-              </p>
-              <span className="text-[10px] text-slate-400">Pactado en consulta</span>
-            </div>
-
-            <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100">
-              <span className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider">
-                Total Abonado
-              </span>
-              <p className="text-xl font-bold text-emerald-700 mt-0.5">
-                ${patient.totalPaid.toLocaleString()}
-              </p>
-              <span className="text-[10px] text-emerald-600">
-                {patientPayments.length} abonos registrados
+          {/* Quick Info & Financial Status Banner: 4 Tarjetas Oficiales */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* 1. Total del monto del plan de financiamiento: Total sin aplicar ningún tipo de descuento ni bono */}
+            <div className="p-3 bg-slate-50/90 rounded-xl border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Total Plan Financiamiento
+                </span>
+                <p className="text-lg sm:text-xl font-black text-slate-900 mt-0.5">
+                  ${financialSummary.totalPlanOriginal.toLocaleString('es-AR')}
+                </p>
+              </div>
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Total sin aplicar ningún tipo de descuento ni bono
               </span>
             </div>
 
-            <div className={`p-3 rounded-xl border ${isPaid ? 'bg-emerald-50/30 border-emerald-200' : 'bg-amber-50/60 border-amber-200'}`}>
-              <span className={`text-[11px] font-semibold uppercase tracking-wider ${isPaid ? 'text-emerald-700' : 'text-amber-800'}`}>
-                Saldo Pendiente
+            {/* 2. Total Inicial: Total que la paciente pagó como inicial */}
+            <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200/90 shadow-2xs flex flex-col justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+                  Total Inicial
+                </span>
+                <p className="text-lg sm:text-xl font-black text-emerald-700 mt-0.5">
+                  ${financialSummary.totalInicial.toLocaleString('es-AR')}
+                </p>
+              </div>
+              <span className="text-[10px] text-emerald-600 mt-1 block">
+                {financialSummary.totalInicial > 0 ? 'Total pagado como cuota inicial' : 'Sin abono inicial registrado'}
               </span>
-              <p className={`text-xl font-bold mt-0.5 ${isPaid ? 'text-emerald-700' : 'text-amber-900'}`}>
-                ${patient.balance.toLocaleString()}
-              </p>
-              <span className="text-[10px] text-slate-500">
-                {isPaid ? 'Al día / Cancelado' : 'Pendiente de cobro'}
+            </div>
+
+            {/* 3. Total de Descuentos: Suma de todos los descuentos y bonos de descuentos aplicados a la paciente */}
+            <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200/90 shadow-2xs flex flex-col justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">
+                  Total de Descuentos
+                </span>
+                <p className="text-lg sm:text-xl font-black text-blue-900 mt-0.5">
+                  ${financialSummary.totalDiscount.toLocaleString('es-AR')}
+                </p>
+              </div>
+              <span className="text-[10px] text-blue-700 mt-1 block truncate" title="Suma de descuentos y bonos aplicados">
+                {financialSummary.totalDiscount > 0
+                  ? (financialSummary.discountPercent || financialSummary.couponDiscount
+                      ? `${financialSummary.discountPercent ? `${financialSummary.discountPercent}% dto` : ''}${financialSummary.discountPercent && financialSummary.couponDiscount ? ' + ' : ''}${financialSummary.couponDiscount ? `bono $${financialSummary.couponDiscount}` : ''} aplicado`
+                      : 'Descuentos y bonos aplicados')
+                  : 'Sin descuentos aplicados'}
+              </span>
+            </div>
+
+            {/* 4. Saldo Pendiente: Total Plan de Financiamiento menos lo que pagó como inicial + descuentos aplicados */}
+            <div
+              className={`p-3 rounded-xl border shadow-2xs flex flex-col justify-between ${
+                financialSummary.saldoPendiente <= 0
+                  ? 'bg-emerald-50/40 border-emerald-200 text-emerald-950'
+                  : 'bg-amber-50/70 border-amber-200 text-amber-950'
+              }`}
+            >
+              <div>
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider block ${
+                    financialSummary.saldoPendiente <= 0 ? 'text-emerald-700' : 'text-amber-800'
+                  }`}
+                >
+                  Saldo Pendiente
+                </span>
+                <p
+                  className={`text-lg sm:text-xl font-black mt-0.5 ${
+                    financialSummary.saldoPendiente <= 0 ? 'text-emerald-700' : 'text-amber-900'
+                  }`}
+                >
+                  ${financialSummary.saldoPendiente.toLocaleString('es-AR')}
+                </p>
+              </div>
+              <span className="text-[10px] text-slate-500 mt-1 block">
+                {financialSummary.saldoPendiente <= 0 ? 'Al día / Totalmente saldado' : 'Total Plan menos inicial y descuentos'}
               </span>
             </div>
           </div>
