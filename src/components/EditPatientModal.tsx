@@ -14,8 +14,10 @@ import {
   Check,
   Percent,
   Clock,
+  Plus,
 } from 'lucide-react';
-import { Patient, SurgicalProcedure } from '../types';
+import { Patient, SurgicalProcedure, CampaignSource } from '../types';
+import { INITIAL_CAMPAIGNS } from '../services/storage';
 
 interface EditPatientModalProps {
   isOpen: boolean;
@@ -23,6 +25,8 @@ interface EditPatientModalProps {
   patient: Patient | null;
   onSavePatient: (updatedPatient: Patient) => void;
   availableProcedures?: SurgicalProcedure[];
+  availableCampaigns?: CampaignSource[];
+  onAddCampaign?: (newCampaignName: string) => CampaignSource | void;
 }
 
 export const EditPatientModal: React.FC<EditPatientModalProps> = ({
@@ -31,6 +35,8 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
   patient,
   onSavePatient,
   availableProcedures = [],
+  availableCampaigns = INITIAL_CAMPAIGNS,
+  onAddCampaign,
 }) => {
   const [fullName, setFullName] = useState('');
   const [idNumber, setIdNumber] = useState('');
@@ -58,7 +64,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
       setPhone(patient.phone || '');
       setEmail(patient.email || '');
       setCity(patient.city || '');
-      setCampaign(patient.campaign || 'Instagram Ads');
+      setCampaign(patient.campaign || 'Referido');
       setProcedure(patient.procedure || '');
       setDoctor(patient.doctor || 'Dr. Jorge Apelencia');
       setTotalCost(patient.totalCost ?? '');
@@ -241,20 +247,32 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
 
               <div>
                 <label className="block font-medium text-slate-700 mb-1">
-                  Origen / Campaña de Marketing
+                  Campaña / Origen de Captación
                 </label>
                 <select
                   value={campaign}
-                  onChange={(e) => setCampaign(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value === '__ADD_NEW__') {
+                      const custom = prompt('Ingrese la nueva opción de Campaña / Origen de Captación:');
+                      if (custom && custom.trim()) {
+                        if (onAddCampaign) onAddCampaign(custom.trim());
+                        setCampaign(custom.trim());
+                      }
+                    } else {
+                      setCampaign(e.target.value);
+                    }
+                  }}
                   className="w-full py-2 px-3 rounded-lg bg-slate-50 border border-slate-300 text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                 >
-                  <option value="Instagram Ads">Instagram Ads</option>
-                  <option value="Google Ads">Google Ads</option>
-                  <option value="TikTok">TikTok</option>
-                  <option value="Facebook">Facebook</option>
-                  <option value="Recomendación / Boca en boca">Recomendación / Boca en boca</option>
-                  <option value="Paciente Recurrente">Paciente Recurrente</option>
-                  <option value="Otro">Otro Canal</option>
+                  {availableCampaigns.filter((c) => c.isActive).map((item) => (
+                    <option key={item.id} value={item.name}>
+                      {item.name}
+                    </option>
+                  ))}
+                  {!availableCampaigns.some((c) => c.name === campaign) && campaign && (
+                    <option value={campaign}>{campaign}</option>
+                  )}
+                  <option value="__ADD_NEW__">+ Agregar nueva opción...</option>
                 </select>
               </div>
             </div>

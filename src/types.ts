@@ -228,3 +228,11 @@ export interface RolePrivilege {
   canAccessGoogleSheets: boolean;
   canExportReports: boolean;
 }
+
+export interface CampaignSource {
+  id: string;
+  name: string;
+  isActive: boolean;
+  createdAt?: string;
+}
+

@@ -31,6 +31,7 @@ import {
   RolePrivilege,
   FinancingPlan,
   CRMEvent,
+  CampaignSource,
 } from './types';
 import { WhatsAppTemplateType } from './services/whatsapp';
 import {
@@ -58,6 +59,9 @@ import {
   saveLocalFinancingPlans,
   loadLocalCRMEvents,
   saveLocalCRMEvents,
+  loadLocalCampaigns,
+  saveLocalCampaigns,
+  INITIAL_CAMPAIGNS,
   generatePatientCRMEvents,
   getEffectiveGasUrl,
   recalculatePatientOnPayment,
@@ -87,6 +91,8 @@ import {
   syncAllPlansToGoogleSheet,
   updatePlanInGoogleSheet,
   deletePlanFromGoogleSheet,
+  syncAllCampaignsToGoogleSheet,
+  appendCampaignToGoogleSheet,
 } from './services/googleSheets';
 import {
   testGasConnection,
@@ -105,6 +111,8 @@ import {
   saveFinancingPlanToGas,
   deleteFinancingPlanFromGas,
   saveAllFinancingPlansToGas,
+  saveCampaignToGas,
+  saveAllCampaignsToGas,
   batchSyncToGas,
   cleanupProcedureSheetsInGas,
 } from './services/gasService';
@@ -129,6 +137,7 @@ export default function App() {
   const [rolePrivileges, setRolePrivileges] = useState<RolePrivilege[]>(loadLocalRolePrivileges);
   const [financingPlans, setFinancingPlans] = useState<FinancingPlan[]>(loadLocalFinancingPlans);
   const [crmEvents, setCrmEvents] = useState<CRMEvent[]>(loadLocalCRMEvents);
+  const [campaigns, setCampaigns] = useState<CampaignSource[]>(loadLocalCampaigns);
 
   // Navigation & User State
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -235,6 +244,10 @@ export default function App() {
   useEffect(() => {
     saveLocalCRMEvents(crmEvents);
   }, [crmEvents]);
+
+  useEffect(() => {
+    saveLocalCampaigns(campaigns);
+  }, [campaigns]);
 
   // Current active user & RBAC determination
   const activeUser: SystemUser | null = activeUserId
@@ -673,7 +686,7 @@ export default function App() {
 
     setSheetConfig((prev) => ({ ...prev, isSyncing: true }));
     try {
-      await syncAllToGoogleSheet(token, sheetConfig.spreadsheetId, patients, payments, refunds, users, procedures, financingPlans);
+      await syncAllToGoogleSheet(token, sheetConfig.spreadsheetId, patients, payments, refunds, users, procedures, financingPlans, campaigns);
       setSheetConfig((prev) => ({
         ...prev,
         isSyncing: false,
@@ -710,6 +723,19 @@ export default function App() {
         if (result.financingPlans && result.financingPlans.length > 0) {
           setFinancingPlans(result.financingPlans);
           saveLocalFinancingPlans(result.financingPlans);
+        }
+        if (result.campaigns && result.campaigns.length > 0) {
+          const existingNames = new Set(result.campaigns.map((c) => c.name.trim().toLowerCase()));
+          const missingDefaults = INITIAL_CAMPAIGNS.filter((c) => !existingNames.has(c.name.trim().toLowerCase()));
+          const mergedCampaigns = [...INITIAL_CAMPAIGNS, ...result.campaigns.filter((c) => !INITIAL_CAMPAIGNS.some((d) => d.name.trim().toLowerCase() === c.name.trim().toLowerCase()))];
+          setCampaigns(mergedCampaigns);
+          saveLocalCampaigns(mergedCampaigns);
+          if (missingDefaults.length > 0) {
+            syncAllCampaignsToGoogleSheet(token, sheetConfig.spreadsheetId, mergedCampaigns).catch(console.warn);
+          }
+        } else {
+          // Crear y sembrar la hoja Campañas_Captacion en Google Sheets si aún no tenía datos
+          syncAllCampaignsToGoogleSheet(token, sheetConfig.spreadsheetId, campaigns).catch(console.warn);
         }
 
         setSheetConfig((prev) => ({
@@ -771,6 +797,23 @@ export default function App() {
       if (data.financingPlans && Array.isArray(data.financingPlans) && data.financingPlans.length > 0) {
         setFinancingPlans(data.financingPlans);
         saveLocalFinancingPlans(data.financingPlans);
+      }
+
+      if (data.campaigns && Array.isArray(data.campaigns) && data.campaigns.length > 0) {
+        const existingNames = new Set(data.campaigns.map((c) => c.name.trim().toLowerCase()));
+        const missingDefaults = INITIAL_CAMPAIGNS.filter((c) => !existingNames.has(c.name.trim().toLowerCase()));
+        const mergedCampaigns = [
+          ...INITIAL_CAMPAIGNS,
+          ...data.campaigns.filter((c) => !INITIAL_CAMPAIGNS.some((d) => d.name.trim().toLowerCase() === c.name.trim().toLowerCase())),
+        ];
+        setCampaigns(mergedCampaigns);
+        saveLocalCampaigns(mergedCampaigns);
+        if (missingDefaults.length > 0) {
+          saveAllCampaignsToGas(gasUrl, mergedCampaigns).catch(console.warn);
+        }
+      } else {
+        // Señal automática: si en Google Sheets aún no existe la hoja Campañas_Captacion o está vacía, crearla y poblarla
+        saveAllCampaignsToGas(gasUrl, campaigns).catch(console.warn);
       }
 
       const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
@@ -861,6 +904,7 @@ export default function App() {
         crmEvents,
         procedures,
         financingPlans,
+        campaigns,
       });
       const now = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
       setSheetConfig((prev) => ({ ...prev, isSyncing: false, lastSyncTime: now }));
@@ -870,6 +914,41 @@ export default function App() {
       setSheetConfig((prev) => ({ ...prev, isSyncing: false, error: err.message }));
       throw err;
     }
+  };
+
+  const handleAddCampaign = (newCampaignName: string): CampaignSource => {
+    const trimmed = newCampaignName.trim();
+    const existing = campaigns.find((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      return existing;
+    }
+
+    const newCamp: CampaignSource = {
+      id: `CMP-${Date.now().toString().slice(-4)}`,
+      name: trimmed,
+      isActive: true,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+
+    const updatedCampaigns = [...campaigns, newCamp];
+    setCampaigns(updatedCampaigns);
+    saveLocalCampaigns(updatedCampaigns);
+
+    const gasUrl = sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
+    if (gasUrl) {
+      saveCampaignToGas(gasUrl, newCamp, updatedCampaigns).catch(console.warn);
+    }
+
+    getAccessToken().then((token) => {
+      if (token && sheetConfig.spreadsheetId) {
+        appendCampaignToGoogleSheet(token, sheetConfig.spreadsheetId, newCamp).catch(() => {
+          syncAllCampaignsToGoogleSheet(token, sheetConfig.spreadsheetId!, updatedCampaigns).catch(console.warn);
+        });
+      }
+    });
+
+    showToast(`✓ Nueva opción "${trimmed}" agregada a Campaña / Origen de Captación y sincronizada.`);
+    return newCamp;
   };
 
   const handleCleanupProcedureSheets = async () => {
@@ -1619,6 +1698,8 @@ export default function App() {
         availableProcedures={procedures}
         availableCoupons={coupons}
         availableFinancingPlans={financingPlans}
+        availableCampaigns={campaigns}
+        onAddCampaign={handleAddCampaign}
         branding={branding}
       />
 
@@ -1631,6 +1712,8 @@ export default function App() {
         patient={patientToEdit}
         onSavePatient={handleUpdatePatient}
         availableProcedures={procedures}
+        availableCampaigns={campaigns}
+        onAddCampaign={handleAddCampaign}
       />
 
       <NewPaymentModal

@@ -12,6 +12,7 @@ import {
   CRMEvent,
   PatientProcedureItem,
   ScheduledPayment,
+  CampaignSource,
 } from '../types';
 
 export const EDGAR_SUPER_ADMIN_ID = 'USR-SUPER-EDGAR';
@@ -403,6 +404,7 @@ const STORAGE_KEYS = {
   ROLE_PRIVILEGES: 'dr_belleza_role_privileges_v1',
   FINANCING_PLANS: 'dr_belleza_financing_plans_v1',
   CRM_EVENTS: 'dr_belleza_crm_events_v1',
+  CAMPAIGNS: 'dr_belleza_campaigns_v1',
 };
 
 export function loadLocalUsers(): SystemUser[] {
@@ -1913,4 +1915,46 @@ export function generatePatientCRMEvents(
 
   return events;
 }
+
+export const INITIAL_CAMPAIGNS: CampaignSource[] = [
+  { id: 'CMP-001', name: 'Referido', isActive: true, createdAt: '2026-01-01' },
+  { id: 'CMP-002', name: 'Instagram', isActive: true, createdAt: '2026-01-01' },
+  { id: 'CMP-003', name: 'Tik tok', isActive: true, createdAt: '2026-01-01' },
+  { id: 'CMP-004', name: 'Facebook', isActive: true, createdAt: '2026-01-01' },
+  { id: 'CMP-005', name: 'YouTube', isActive: true, createdAt: '2026-01-01' },
+  { id: 'CMP-006', name: 'Directo a consulta', isActive: true, createdAt: '2026-01-01' },
+];
+
+export function loadLocalCampaigns(): CampaignSource[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.CAMPAIGNS);
+    if (saved) {
+      const parsed: CampaignSource[] = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const existingNames = new Set(parsed.map((c) => c.name.trim().toLowerCase()));
+        const missingDefaults = INITIAL_CAMPAIGNS.filter(
+          (c) => !existingNames.has(c.name.trim().toLowerCase())
+        );
+        if (missingDefaults.length > 0) {
+          const merged = [...INITIAL_CAMPAIGNS, ...parsed.filter((c) => !INITIAL_CAMPAIGNS.some((d) => d.name.trim().toLowerCase() === c.name.trim().toLowerCase()))];
+          localStorage.setItem(STORAGE_KEYS.CAMPAIGNS, JSON.stringify(merged));
+          return merged;
+        }
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Error loading campaigns from localStorage', e);
+  }
+  return INITIAL_CAMPAIGNS;
+}
+
+export function saveLocalCampaigns(campaigns: CampaignSource[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.CAMPAIGNS, JSON.stringify(campaigns));
+  } catch (e) {
+    console.error('Error saving campaigns to localStorage', e);
+  }
+}
+
 

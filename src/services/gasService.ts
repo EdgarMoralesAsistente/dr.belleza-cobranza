@@ -6,6 +6,7 @@ import {
   CRMEvent,
   SurgicalProcedure,
   FinancingPlan,
+  CampaignSource,
 } from '../types';
 
 /**
@@ -116,6 +117,7 @@ export async function fetchAllFromGas(gasUrl: string): Promise<{
   crmEvents?: CRMEvent[];
   procedures?: SurgicalProcedure[];
   financingPlans?: FinancingPlan[];
+  campaigns?: CampaignSource[];
   spreadsheetName?: string;
   spreadsheetId?: string;
   spreadsheetUrl?: string;
@@ -129,6 +131,7 @@ export async function fetchAllFromGas(gasUrl: string): Promise<{
     crmEvents: Array.isArray(res.crmEvents) ? res.crmEvents : undefined,
     procedures: Array.isArray(res.procedures) ? res.procedures : undefined,
     financingPlans: Array.isArray(res.financingPlans) ? res.financingPlans : undefined,
+    campaigns: Array.isArray(res.campaigns) ? res.campaigns : undefined,
     spreadsheetName: res.spreadsheetName,
     spreadsheetId: res.spreadsheetId,
     spreadsheetUrl: res.spreadsheetUrl,
@@ -394,6 +397,64 @@ export async function deleteFinancingPlanFromGas(gasUrl: string, planId: string)
 }
 
 /**
+ * Guarda o actualiza una opción de Campaña / Origen de Captación en la hoja 'Campañas_Captacion'
+ */
+export async function saveCampaignToGas(
+  gasUrl: string,
+  campaign: CampaignSource,
+  allCampaigns?: CampaignSource[]
+): Promise<any> {
+  try {
+    return await postToGas(gasUrl, {
+      action: 'SAVE_CAMPAIGN',
+      campaign,
+    });
+  } catch (err: any) {
+    if (allCampaigns && allCampaigns.length > 0) {
+      try {
+        return await postToGas(gasUrl, {
+          action: 'SAVE_ALL_CAMPAIGNS',
+          campaigns: allCampaigns,
+        });
+      } catch {
+        return await postToGas(gasUrl, {
+          action: 'BATCH_SYNC',
+          campaigns: allCampaigns,
+        });
+      }
+    }
+    throw err;
+  }
+}
+
+/**
+ * Envía la señal para crear y sincronizar la hoja 'Campañas_Captacion' en Google Sheets
+ */
+export async function saveAllCampaignsToGas(gasUrl: string, campaigns: CampaignSource[]): Promise<any> {
+  try {
+    return await postToGas(gasUrl, {
+      action: 'SAVE_ALL_CAMPAIGNS',
+      campaigns,
+    });
+  } catch {
+    return await postToGas(gasUrl, {
+      action: 'BATCH_SYNC',
+      campaigns,
+    });
+  }
+}
+
+/**
+ * Elimina una opción de campaña de Google Sheets
+ */
+export async function deleteCampaignFromGas(gasUrl: string, campaignId: string): Promise<void> {
+  await postToGas(gasUrl, {
+    action: 'DELETE_CAMPAIGN',
+    campaignId,
+  });
+}
+
+/**
  * Sincronización masiva: envía todos los datos locales para poblar Google Sheets
  */
 export async function batchSyncToGas(
@@ -406,6 +467,7 @@ export async function batchSyncToGas(
     crmEvents?: CRMEvent[];
     procedures?: SurgicalProcedure[];
     financingPlans?: FinancingPlan[];
+    campaigns?: CampaignSource[];
   }
 ): Promise<any> {
   return await postToGas(gasUrl, {
@@ -427,3 +489,4 @@ export async function cleanupProcedureSheetsInGas(gasUrl: string): Promise<{
     message: 'Hoja "Procedimientos" verificada como pestaña oficial.',
   };
 }
+

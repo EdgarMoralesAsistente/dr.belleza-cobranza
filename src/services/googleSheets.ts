@@ -1,4 +1,4 @@
-import { Patient, Payment, Refund, SystemUser, SurgicalProcedure, FinancingPlan } from '../types';
+import { Patient, Payment, Refund, SystemUser, SurgicalProcedure, FinancingPlan, CampaignSource } from '../types';
 
 export const SHEET_NAMES = {
   PATIENTS: 'Pacientes',
@@ -7,12 +7,14 @@ export const SHEET_NAMES = {
   USERS: 'Usuarios',
   PROCEDURES: 'Procedimientos', // PLURAL - Garantiza una única hoja oficial
   PLANES: 'Planes_Financiamiento',
+  CAMPAIGNS: 'Campañas_Captacion',
 };
 
 // Aliases para resolver nombres dinámicos de pestañas en Google Sheets
 export const SHEET_ALIASES: Record<string, string[]> = {
   [SHEET_NAMES.PROCEDURES]: ['procedimientos', 'procedimiento', 'cirugias', 'cirugia', 'catalogo', 'catalogo_quirurgico', 'procedures', 'procedure'],
   [SHEET_NAMES.PLANES]: ['planes_financiamiento', 'planes financiamiento', 'planes', 'plan', 'financiamiento'],
+  [SHEET_NAMES.CAMPAIGNS]: ['campanas_captacion', 'campañas_captacion', 'campanas', 'campañas', 'origenes_captacion', 'origen_captacion', 'campaigns'],
   [SHEET_NAMES.PATIENTS]: ['pacientes', 'paciente', 'patients', 'patient'],
   [SHEET_NAMES.PAYMENTS]: ['historial de pagos', 'historial_de_pagos', 'abonos', 'abono', 'pagos', 'pago', 'payments'],
   [SHEET_NAMES.REFUNDS]: ['historial de reintegros', 'historial_de_reintegros', 'reintegros', 'reintegro', 'devoluciones', 'refunds'],
@@ -268,6 +270,13 @@ const FINANCING_PLAN_HEADERS = [
   'Activo',
 ];
 
+const CAMPAIGN_HEADERS = [
+  'ID Campaña',
+  'Nombre / Origen de Captación',
+  'Activo',
+  'Fecha Creación',
+];
+
 /**
  * Creates a brand new Google Sheet formatted for Dr. Belleza Cobranza
  */
@@ -314,6 +323,12 @@ export async function createDrBellezaSpreadsheet(accessToken: string): Promise<{
         properties: {
           title: SHEET_NAMES.PLANES,
           gridProperties: { rowCount: 30, columnCount: 10, frozenRowCount: 1 },
+        },
+      },
+      {
+        properties: {
+          title: SHEET_NAMES.CAMPAIGNS,
+          gridProperties: { rowCount: 50, columnCount: 6, frozenRowCount: 1 },
         },
       },
     ],
@@ -372,6 +387,10 @@ export async function createDrBellezaSpreadsheet(accessToken: string): Promise<{
           {
             range: `'${SHEET_NAMES.PLANES}'!A1:H1`,
             values: [FINANCING_PLAN_HEADERS],
+          },
+          {
+            range: `'${SHEET_NAMES.CAMPAIGNS}'!A1:D1`,
+            values: [CAMPAIGN_HEADERS],
           },
         ],
       }),
@@ -488,6 +507,15 @@ export function planToRow(pl: FinancingPlan): (string | number)[] {
   ];
 }
 
+export function campaignToRow(c: CampaignSource): (string | number)[] {
+  return [
+    c.id,
+    c.name || '',
+    c.isActive !== false ? 'TRUE' : 'FALSE',
+    c.createdAt || '2026-01-01',
+  ];
+}
+
 /**
  * Sync entire current dataset into Google Sheets cleanly
  */
@@ -499,7 +527,8 @@ export async function syncAllToGoogleSheet(
   refunds: Refund[],
   users?: SystemUser[],
   procedures?: SurgicalProcedure[],
-  financingPlans?: FinancingPlan[]
+  financingPlans?: FinancingPlan[],
+  campaigns?: CampaignSource[]
 ): Promise<void> {
   const patientTab = await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.PATIENTS, SHEET_ALIASES[SHEET_NAMES.PATIENTS], PATIENT_HEADERS);
   const paymentTab = await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.PAYMENTS, SHEET_ALIASES[SHEET_NAMES.PAYMENTS], PAYMENT_HEADERS);
@@ -507,6 +536,7 @@ export async function syncAllToGoogleSheet(
   const userTab = users ? await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.USERS, SHEET_ALIASES[SHEET_NAMES.USERS], USER_HEADERS) : SHEET_NAMES.USERS;
   const procTab = procedures ? await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.PROCEDURES, SHEET_ALIASES[SHEET_NAMES.PROCEDURES], PROCEDURE_HEADERS) : SHEET_NAMES.PROCEDURES;
   const planTab = financingPlans ? await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.PLANES, SHEET_ALIASES[SHEET_NAMES.PLANES], FINANCING_PLAN_HEADERS) : SHEET_NAMES.PLANES;
+  const campTab = campaigns ? await resolveSheetTabName(accessToken, spreadsheetId, SHEET_NAMES.CAMPAIGNS, SHEET_ALIASES[SHEET_NAMES.CAMPAIGNS], CAMPAIGN_HEADERS) : SHEET_NAMES.CAMPAIGNS;
 
   const patientRows = [PATIENT_HEADERS, ...patients.map(patientToRow)];
   const paymentRows = [PAYMENT_HEADERS, ...payments.map(paymentToRow)];
@@ -514,6 +544,7 @@ export async function syncAllToGoogleSheet(
   const userRows = users ? [USER_HEADERS, ...users.map(userToRow)] : [];
   const procedureRows = procedures ? [PROCEDURE_HEADERS, ...procedures.map(procedureToRow)] : [];
   const planRows = financingPlans ? [FINANCING_PLAN_HEADERS, ...financingPlans.map(planToRow)] : [];
+  const campaignRows = campaigns ? [CAMPAIGN_HEADERS, ...campaigns.map(campaignToRow)] : [];
 
   const rangesToClear = [
     `'${patientTab}'!A1:Z`,
@@ -528,6 +559,9 @@ export async function syncAllToGoogleSheet(
   }
   if (financingPlans && financingPlans.length > 0) {
     rangesToClear.push(`'${planTab}'!A1:Z`);
+  }
+  if (campaigns && campaigns.length > 0) {
+    rangesToClear.push(`'${campTab}'!A1:Z`);
   }
 
   // Clear existing ranges to avoid orphaned leftover rows
@@ -578,6 +612,12 @@ export async function syncAllToGoogleSheet(
       values: planRows,
     });
   }
+  if (campaigns && campaigns.length > 0) {
+    updateData.push({
+      range: `'${campTab}'!A1`,
+      values: campaignRows,
+    });
+  }
 
   // Batch update with current clean records
   const updateRes = await fetch(
@@ -614,6 +654,7 @@ export async function fetchAllFromGoogleSheet(
   users?: SystemUser[];
   procedures?: SurgicalProcedure[];
   financingPlans?: FinancingPlan[];
+  campaigns?: CampaignSource[];
 } | null> {
   try {
     const procTab = await resolveSheetTabName(
@@ -628,6 +669,13 @@ export async function fetchAllFromGoogleSheet(
       SHEET_NAMES.PLANES,
       SHEET_ALIASES[SHEET_NAMES.PLANES]
     );
+    const campTab = await resolveSheetTabName(
+      accessToken,
+      spreadsheetId,
+      SHEET_NAMES.CAMPAIGNS,
+      SHEET_ALIASES[SHEET_NAMES.CAMPAIGNS],
+      CAMPAIGN_HEADERS
+    );
 
     const ranges = [
       `'${SHEET_NAMES.PATIENTS}'!A2:M`,
@@ -636,6 +684,7 @@ export async function fetchAllFromGoogleSheet(
       `'${SHEET_NAMES.USERS}'!A2:J`,
       `'${procTab}'!A2:I`,
       `'${planTab}'!A2:H`,
+      `'${campTab}'!A2:D`,
     ];
     const encodedRanges = ranges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
 
@@ -668,6 +717,7 @@ export async function fetchAllFromGoogleSheet(
     const rawUsers = valueRanges[3]?.values || [];
     const rawProcedures = valueRanges[4]?.values || [];
     const rawPlans = valueRanges[5]?.values || [];
+    const rawCampaigns = valueRanges[6]?.values || [];
 
     const patients: Patient[] = rawPatients
       .filter((row: any[]) => row && row[0])
@@ -791,6 +841,15 @@ export async function fetchAllFromGoogleSheet(
         isActive: String(row[7]).toUpperCase() !== 'FALSE',
       }));
 
+    const campaigns: CampaignSource[] = rawCampaigns
+      .filter((row: any[]) => row && (row[0] || row[1]))
+      .map((row: any[], idx: number) => ({
+        id: String(row[0] || `CMP-00${idx + 1}`).trim(),
+        name: String(row[1] || row[0] || '').trim(),
+        isActive: String(row[2] ?? 'TRUE').toUpperCase() !== 'FALSE',
+        createdAt: String(row[3] || '2026-01-01'),
+      }));
+
     return {
       patients,
       payments,
@@ -798,6 +857,7 @@ export async function fetchAllFromGoogleSheet(
       users: users.length > 0 ? users : undefined,
       procedures: procedures.length > 0 ? procedures : undefined,
       financingPlans: financingPlans.length > 0 ? financingPlans : undefined,
+      campaigns: campaigns.length > 0 ? campaigns : undefined,
     };
   } catch (error) {
     console.error('Error fetching sheet data:', error);
@@ -1446,4 +1506,85 @@ export async function deletePlanFromGoogleSheet(
     console.error('Error deleting financing plan in Google Sheet:', e);
   }
 }
+
+/**
+ * Crea (si no existe) y sincroniza todas las opciones de Campaña / Origen de Captación en Google Sheets
+ */
+export async function syncAllCampaignsToGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  campaigns: CampaignSource[]
+): Promise<void> {
+  const targetTab = await resolveSheetTabName(
+    accessToken,
+    spreadsheetId,
+    SHEET_NAMES.CAMPAIGNS,
+    SHEET_ALIASES[SHEET_NAMES.CAMPAIGNS],
+    CAMPAIGN_HEADERS
+  );
+  const rows = [CAMPAIGN_HEADERS, ...campaigns.map(campaignToRow)];
+
+  try {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A1:Z:clear`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  } catch (clearErr) {
+    console.warn('Clear campaigns warning:', clearErr);
+  }
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A1?valueInputOption=USER_ENTERED`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        values: rows,
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || 'Error al guardar campañas en Google Sheets');
+  }
+}
+
+/**
+ * Agrega una nueva opción de campaña en la hoja 'Campañas_Captacion' de Google Sheets
+ */
+export async function appendCampaignToGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  campaign: CampaignSource
+): Promise<void> {
+  const targetTab = await resolveSheetTabName(
+    accessToken,
+    spreadsheetId,
+    SHEET_NAMES.CAMPAIGNS,
+    SHEET_ALIASES[SHEET_NAMES.CAMPAIGNS],
+    CAMPAIGN_HEADERS
+  );
+  const row = campaignToRow(campaign);
+  await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${targetTab}'!A:D:append?valueInputOption=USER_ENTERED`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        values: [row],
+      }),
+    }
+  );
+}
+
 

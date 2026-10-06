@@ -75,6 +75,16 @@ var SCHEMA = {
       'ID Plan', 'Nombre', 'Meses', 'Frecuencia', 'Cuotas', 'Recargo (%)',
       'Anticipo (%)', 'Activo'
     ]
+  },
+  CAMPANAS: {
+    name: 'Campañas_Captacion',
+    aliases: [
+      'campanas_captacion', 'campañas_captacion', 'campanas captacion', 'campañas captacion',
+      'campanas', 'campañas', 'origenes_captacion', 'origen_captacion', 'campaigns'
+    ],
+    headers: [
+      'ID Campaña', 'Nombre / Origen de Captación', 'Activo', 'Fecha Creación'
+    ]
   }
 };
 
@@ -184,6 +194,19 @@ function sembrarDatosIniciales(ss) {
     ];
     planSheet.getRange(2, 1, defaultPlans.length, defaultPlans[0].length).setValues(defaultPlans);
   }
+
+  var campSheet = obtenerOCrearHoja(ss, SCHEMA.CAMPANAS);
+  if (campSheet && campSheet.getLastRow() <= 1) {
+    var defaultCampaigns = [
+      ['CMP-001', 'Referido', 'TRUE', '2026-01-01'],
+      ['CMP-002', 'Instagram', 'TRUE', '2026-01-01'],
+      ['CMP-003', 'Tik tok', 'TRUE', '2026-01-01'],
+      ['CMP-004', 'Facebook', 'TRUE', '2026-01-01'],
+      ['CMP-005', 'YouTube', 'TRUE', '2026-01-01'],
+      ['CMP-006', 'Directo a consulta', 'TRUE', '2026-01-01']
+    ];
+    campSheet.getRange(2, 1, defaultCampaigns.length, defaultCampaigns[0].length).setValues(defaultCampaigns);
+  }
 }
 
 /**
@@ -226,7 +249,12 @@ function doGet(e) {
       'batch_sync',
       'SAVE_PROCEDURE',
       'SAVE_ALL_PROCEDURES',
-      'DELETE_PROCEDURE'
+      'DELETE_PROCEDURE',
+      'campaigns',
+      'SAVE_CAMPAIGN',
+      'SAVE_ALL_CAMPAIGNS',
+      'DELETE_CAMPAIGN',
+      'ENSURE_CAMPAIGNS_SHEET'
     ]
   });
 }
@@ -275,7 +303,12 @@ function doPost(e) {
             'batch_sync',
             'SAVE_PROCEDURE',
             'SAVE_ALL_PROCEDURES',
-            'DELETE_PROCEDURE'
+            'DELETE_PROCEDURE',
+            'campaigns',
+            'SAVE_CAMPAIGN',
+            'SAVE_ALL_CAMPAIGNS',
+            'DELETE_CAMPAIGN',
+            'ENSURE_CAMPAIGNS_SHEET'
           ]
         });
 
@@ -330,6 +363,16 @@ function doPost(e) {
       case 'DELETE_FINANCING_PLAN':
         return responderJSON(borrarPlanFinanciamiento(ss, payload.planId));
 
+      case 'SAVE_CAMPAIGN':
+        return responderJSON(guardarCampana(ss, payload.campaign));
+
+      case 'SAVE_ALL_CAMPAIGNS':
+      case 'ENSURE_CAMPAIGNS_SHEET':
+        return responderJSON(guardarTodasCampanas(ss, payload.campaigns));
+
+      case 'DELETE_CAMPAIGN':
+        return responderJSON(borrarCampana(ss, payload.campaignId));
+
       case 'BATCH_SYNC':
       case 'SYNC_BATCH':
         return responderJSON(sincronizarMasivo(ss, payload));
@@ -364,6 +407,7 @@ function obtenerTodosLosDatos(ss) {
     crmEvents: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.CRM), mapearEventoCRMDesdeFila),
     procedures: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.PROCEDIMIENTOS), mapearProcedimientoDesdeFila),
     financingPlans: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.PLANES), mapearPlanDesdeFila),
+    campaigns: leerHojaComoObjetos(obtenerOCrearHoja(ss, SCHEMA.CAMPANAS), mapearCampanaDesdeFila),
     spreadsheetName: ss.getName(),
     spreadsheetId: ss.getId(),
     spreadsheetUrl: ss.getUrl()
@@ -526,6 +570,17 @@ function mapearPlanDesdeFila(r) {
     interestRatePercent: Number(r[5]) || 0,
     downPaymentPercent: Number(r[6]) || 20,
     isActive: String(r[7]).toLowerCase() === 'true'
+  };
+}
+
+function mapearCampanaDesdeFila(r) {
+  if (!r || (!r[0] && !r[1])) return null;
+  var rawActive = String(r[2] !== undefined ? r[2] : 'TRUE').toLowerCase().trim();
+  return {
+    id: String(r[0] || ('CMP-' + Math.floor(100 + Math.random() * 900))).trim(),
+    name: String(r[1] || r[0] || '').trim(),
+    isActive: rawActive !== 'false' && rawActive !== 'inactivo' && rawActive !== '0' && rawActive !== 'no',
+    createdAt: r[3] ? formatearFecha(r[3]) : '2026-01-01'
   };
 }
 
@@ -1031,6 +1086,103 @@ function sincronizarMasivo(ss, data) {
     guardarTodosPlanes(ss, data.financingPlans);
   }
 
+  var campList = data.campaigns || data.campanas || data.campaignSources;
+  if (campList && Array.isArray(campList)) {
+    guardarTodasCampanas(ss, campList);
+  } else {
+    obtenerOCrearHoja(ss, SCHEMA.CAMPANAS);
+  }
+
   return { status: 'ok', message: 'Sincronización masiva completada exitosamente' };
 }
+
+function guardarCampana(ss, camp) {
+  if (!camp || !camp.name) return { status: 'error', message: 'Campaña inválida' };
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.CAMPANAS);
+  var values = sheet.getDataRange().getValues();
+  var rowIndex = -1;
+  var targetId = String(camp.id || '').trim().toUpperCase();
+  var targetName = normalizarTexto(camp.name);
+
+  for (var i = 1; i < values.length; i++) {
+    var rowId = String(values[i][0] || '').trim().toUpperCase();
+    var rowName = normalizarTexto(values[i][1]);
+    if ((targetId && rowId === targetId) || (targetName && rowName === targetName)) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  var rowData = [
+    camp.id || ('CMP-' + Math.floor(1000 + Math.random() * 9000)),
+    String(camp.name).trim(),
+    camp.isActive !== false ? 'TRUE' : 'FALSE',
+    camp.createdAt || new Date().toISOString().split('T')[0]
+  ];
+
+  if (rowIndex > 1) {
+    sheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
+  } else {
+    sheet.appendRow(rowData);
+  }
+  return { status: 'ok', message: 'Campaña guardada en hoja ' + sheet.getName(), sheetName: sheet.getName() };
+}
+
+function borrarCampana(ss, campId) {
+  var sheet = obtenerOCrearHoja(ss, SCHEMA.CAMPANAS);
+  var values = sheet.getDataRange().getValues();
+  var target = String(campId || '').trim().toUpperCase();
+  for (var i = 1; i < values.length; i++) {
+    var rowId = String(values[i][0] || '').trim().toUpperCase();
+    var rowName = normalizarTexto(values[i][1]);
+    if (rowId === target || rowName === normalizarTexto(campId)) {
+      sheet.deleteRow(i + 1);
+      return { status: 'ok', message: 'Campaña eliminada' };
+    }
+  }
+  return { status: 'ok', message: 'Campaña no encontrada' };
+}
+
+function guardarTodasCampanas(ss, campaignsList) {
+  var campSheet = obtenerOCrearHoja(ss, SCHEMA.CAMPANAS);
+  var headers = SCHEMA.CAMPANAS.headers;
+  campSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  formatearEncabezado(campSheet, headers.length);
+
+  var list = Array.isArray(campaignsList) && campaignsList.length > 0
+    ? campaignsList
+    : [
+        { id: 'CMP-001', name: 'Referido', isActive: true, createdAt: '2026-01-01' },
+        { id: 'CMP-002', name: 'Instagram', isActive: true, createdAt: '2026-01-01' },
+        { id: 'CMP-003', name: 'Tik tok', isActive: true, createdAt: '2026-01-01' },
+        { id: 'CMP-004', name: 'Facebook', isActive: true, createdAt: '2026-01-01' },
+        { id: 'CMP-005', name: 'YouTube', isActive: true, createdAt: '2026-01-01' },
+        { id: 'CMP-006', name: 'Directo a consulta', isActive: true, createdAt: '2026-01-01' }
+      ];
+
+  var rows = list.map(function(c, idx) {
+    return [
+      c.id || ('CMP-00' + (idx + 1)),
+      String(c.name || '').trim(),
+      c.isActive !== false ? 'TRUE' : 'FALSE',
+      c.createdAt || new Date().toISOString().split('T')[0]
+    ];
+  });
+
+  if (rows.length > 0) {
+    campSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+
+  var lastRow = campSheet.getLastRow();
+  if (lastRow > 1 + rows.length) {
+    campSheet.getRange(2 + rows.length, 1, lastRow - (1 + rows.length), headers.length).clearContent();
+  }
+
+  return {
+    status: 'ok',
+    message: 'Hoja Campañas_Captacion sincronizada (' + rows.length + ' opciones)',
+    sheetName: campSheet.getName()
+  };
+}
 `;
+
