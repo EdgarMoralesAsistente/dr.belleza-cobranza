@@ -152,7 +152,13 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
                 </p>
               </div>
               <span className="text-[10px] text-emerald-600 mt-1 block">
-                {financialSummary.totalInicial > 0 ? 'Total pagado como cuota inicial' : 'Sin abono inicial registrado'}
+                {financialSummary.totalInicial > 0
+                  ? financialSummary.totalPaid > financialSummary.totalInicial
+                    ? `Inicial + $${(financialSummary.totalPaid - financialSummary.totalInicial).toLocaleString('es-AR')} en abonos`
+                    : 'Total pagado como cuota inicial'
+                  : financialSummary.totalPaid > 0
+                  ? `Inicial $0 • Abonos: $${financialSummary.totalPaid.toLocaleString('es-AR')} USD`
+                  : 'Sin abono inicial ($0 USD)'}
               </span>
             </div>
 

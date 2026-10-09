@@ -1012,7 +1012,6 @@ export function getPatientFinancialSummary(
   const breakdown = getPatientProcedureBreakdown(patient);
 
   // 1. Total del monto del plan de financiamiento: Total sin aplicar ningún tipo de descuento ni bono.
-  // El monto que está mostrando en la tarjeta Total del Plan de Financiamiento está bien.
   const totalPlanOriginal =
     patient.originalSubtotal && patient.originalSubtotal > 0
       ? patient.originalSubtotal
@@ -1022,33 +1021,34 @@ export function getPatientFinancialSummary(
       ? breakdown.grossSubtotal
       : patient.totalCost;
 
-  // 2. Total Inicial: Total que la paciente pagó como inicial
+  // Filtrar todos los abonos registrados para esta paciente
+  const patientPayments = payments ? payments.filter((p) => p.patientId === patient.id) : [];
+  const sumOfRecordedPayments = patientPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+  // Detectar si existe algún pago explícitamente marcado como abono inicial/seña/anticipo
+  const initialKwPayment = patientPayments.find((p) => {
+    const text = `${p.notes || ''} ${p.reference || ''}`.toLowerCase();
+    return (
+      text.includes('inicial') ||
+      text.includes('seña') ||
+      text.includes('sena') ||
+      text.includes('anticipo') ||
+      text.includes('reserva') ||
+      text.includes('primer abono')
+    );
+  });
+
+  // 2. Total Inicial: Total que la paciente pagó como inicial.
+  // Si la paciente se registró con Inicial = $0 (initialPayment === 0), se respeta estrictamente $0
+  // aunque luego realice abonos a cuenta de sus cuotas.
   let totalInicial = 0;
   if (patient.initialPayment !== undefined && patient.initialPayment !== null && patient.initialPayment >= 0) {
-    totalInicial = patient.initialPayment;
-  } else if (payments && payments.length > 0) {
-    const patientPayments = payments.filter((p) => p.patientId === patient.id);
-    if (patientPayments.length > 0) {
-      const initialKwPayment = patientPayments.find((p) => {
-        const text = `${p.notes || ''} ${p.reference || ''}`.toLowerCase();
-        return (
-          text.includes('inicial') ||
-          text.includes('seña') ||
-          text.includes('sena') ||
-          text.includes('anticipo') ||
-          text.includes('reserva') ||
-          text.includes('primer abono')
-        );
-      });
-      if (initialKwPayment) {
-        totalInicial = initialKwPayment.amount;
-      } else {
-        const sorted = [...patientPayments].sort((a, b) => a.date.localeCompare(b.date));
-        totalInicial = sorted[0].amount;
-      }
-    }
-  } else if (patient.totalPaid > 0) {
-    totalInicial = patient.totalPaid;
+    totalInicial = Number(patient.initialPayment) || 0;
+  } else if (initialKwPayment) {
+    totalInicial = Number(initialKwPayment.amount) || 0;
+  } else if (patientPayments.length === 0 && (patient.totalPaid || 0) > 0) {
+    // Registro histórico sin desglose en tabla de pagos
+    totalInicial = Number(patient.totalPaid) || 0;
   }
 
   // 3. Descuentos aplicados: (% de descuento + bonos de descuentos)
@@ -1082,25 +1082,34 @@ export function getPatientFinancialSummary(
     totalDescuentos = patient.totalDiscount;
   }
 
-  // 3. Total con Descuentos:
-  // "En Total con descuento debe mostrar el resultado de:
-  //  Total Plan Financiamiento menos el total de descuentos aplicados (% de descuento + bonos de descuentos)"
+  // Total con Descuentos (Neto a pagar del presupuesto)
   const totalConDescuentos = Math.max(0, totalPlanOriginal - totalDescuentos);
 
-  // 4. Saldo Pendiente:
-  // "Y el la tarjeta: 'Saldo Pendiente': debe mostrar el resultado de:
-  //  Total Plan de Financiamiento menos lo que pagó como inicial + descuentos aplicados."
-  // Si la paciente ya ha amortizado abonos adicionales además de la cuota inicial (totalPaid > totalInicial),
-  // se deduce el total abonado para que el saldo pendiente real esté amortizado y al día.
-  const paidDeduction = Math.max(totalInicial, patient.totalPaid || 0);
-  const saldoPendiente = Math.max(0, totalPlanOriginal - (paidDeduction + totalDescuentos));
+  // Total Abonado real acumulado (Inicial + Abonos posteriores):
+  // Garantiza que:
+  // - Caso A (Inicial = $0, pero hay Abonos registrados): se sumen todos los abonos.
+  // - Caso B (Inicial > $0, sin abonos posteriores o con abonos adicionales): se sume Inicial + Abonos sin duplicar si el inicial ya está en la lista de pagos.
+  let effectiveTotalPaid = Math.max(Number(patient.totalPaid) || 0, totalInicial);
+  if (patientPayments.length > 0) {
+    if (initialKwPayment) {
+      // El pago inicial ya forma parte de patientPayments; reemplazamos su valor por totalInicial actualizado si cambió
+      const otherPaymentsSum = sumOfRecordedPayments - (Number(initialKwPayment.amount) || 0);
+      effectiveTotalPaid = Math.max(effectiveTotalPaid, totalInicial + otherPaymentsSum);
+    } else {
+      // Los pagos en patientPayments son abonos de cuotas independientes del campo initialPayment
+      effectiveTotalPaid = Math.max(effectiveTotalPaid, totalInicial + sumOfRecordedPayments);
+    }
+  }
+
+  // 4. Saldo Pendiente: Total Plan Financiamiento menos (Total Abonado [Inicial + Abonos] + Total de Descuentos)
+  const saldoPendiente = Math.max(0, totalPlanOriginal - (effectiveTotalPaid + totalDescuentos));
 
   return {
     totalPlanOriginal,
     totalInicial,
     totalConDescuentos,
     saldoPendiente,
-    totalPaid: patient.totalPaid || 0,
+    totalPaid: effectiveTotalPaid,
     totalDiscount: totalDescuentos,
     discountAmount: percentDiscountAmount,
     discountPercent,

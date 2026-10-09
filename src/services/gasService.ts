@@ -149,12 +149,47 @@ export async function savePatientToGas(gasUrl: string, patient: Patient): Promis
 }
 
 /**
- * Elimina un paciente y todos sus registros vinculados en cascada
+ * Actualiza directamente el presupuesto, procedimiento, monto inicial y abonos de un paciente existente
+ * sin necesidad de eliminarlo y recrearlo. Si el Apps Script aún no tiene UPDATE_PATIENT_BUDGET,
+ * hace fallback automático a SAVE_PATIENT.
  */
-export async function deletePatientFromGas(gasUrl: string, patientId: string): Promise<void> {
+export async function updatePatientBudgetInGas(
+  gasUrl: string,
+  patient: Patient,
+  patientPayments?: Payment[]
+): Promise<void> {
+  try {
+    await postToGas(gasUrl, {
+      action: 'UPDATE_PATIENT_BUDGET',
+      patient,
+      payments: patientPayments,
+    });
+  } catch (err: any) {
+    if (err.message && err.message.includes('Acción no reconocida')) {
+      await postToGas(gasUrl, {
+        action: 'SAVE_PATIENT',
+        patient,
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Elimina un paciente y todos sus registros vinculados en cascada (por ID, Nombre y DNI)
+ */
+export async function deletePatientFromGas(
+  gasUrl: string,
+  patientId: string,
+  patientName?: string,
+  idNumber?: string
+): Promise<void> {
   await postToGas(gasUrl, {
     action: 'DELETE_PATIENT',
     patientId,
+    patientName,
+    idNumber,
   });
 }
 

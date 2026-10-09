@@ -890,7 +890,7 @@ export async function appendPatientToGoogleSheet(
 }
 
 /**
- * Update an existing patient in Google Sheets
+ * Update an existing patient in Google Sheets (supports matching by ID or reusing same Name/DNI row)
  */
 export async function updatePatientInGoogleSheet(
   accessToken: string,
@@ -899,7 +899,7 @@ export async function updatePatientInGoogleSheet(
 ): Promise<void> {
   try {
     const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PATIENTS}'!A:A`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PATIENTS}'!A:D`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
@@ -911,8 +911,18 @@ export async function updatePatientInGoogleSheet(
     const data = await res.json();
     const rows = data.values || [];
     let targetRowIndex = -1;
+    const normName = String(patient.fullName || '').trim().toLowerCase();
+    const normDni = String(patient.idNumber || '').trim().toLowerCase();
+
     for (let i = 1; i < rows.length; i++) {
-      if (rows[i] && String(rows[i][0]) === String(patient.id)) {
+      if (!rows[i]) continue;
+      const rowId = String(rows[i][0] || '').trim();
+      const rowName = String(rows[i][1] || '').trim().toLowerCase();
+      const rowDni = String(rows[i][3] || '').trim().toLowerCase();
+      if (
+        rowId === String(patient.id) ||
+        (normName && rowName === normName && (!normDni || !rowDni || rowDni === normDni))
+      ) {
         targetRowIndex = i + 1;
         break;
       }
@@ -941,7 +951,7 @@ export async function updatePatientInGoogleSheet(
 }
 
 /**
- * Delete a patient row from Google Sheets by clearing it
+ * Delete a patient and all matching duplicate rows from Google Sheets
  */
 export async function deletePatientFromGoogleSheet(
   accessToken: string,
@@ -958,21 +968,27 @@ export async function deletePatientFromGoogleSheet(
     if (!res.ok) return;
     const data = await res.json();
     const rows = data.values || [];
+    const rangesToClear: string[] = [];
+
     for (let i = 1; i < rows.length; i++) {
-      if (rows[i] && String(rows[i][0]) === String(patientId)) {
+      if (rows[i] && String(rows[i][0]).trim() === String(patientId).trim()) {
         const rowIdx = i + 1;
-        await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${SHEET_NAMES.PATIENTS}'!A${rowIdx}:M${rowIdx}:clear`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-          }
-        );
-        break;
+        rangesToClear.push(`'${SHEET_NAMES.PATIENTS}'!A${rowIdx}:M${rowIdx}`);
       }
+    }
+
+    if (rangesToClear.length > 0) {
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ranges: rangesToClear }),
+        }
+      );
     }
   } catch (e) {
     console.error('Error deleting patient from Google Sheet:', e);

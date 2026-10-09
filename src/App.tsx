@@ -98,6 +98,7 @@ import {
   testGasConnection,
   fetchAllFromGas,
   savePatientToGas,
+  updatePatientBudgetInGas,
   deletePatientFromGas,
   savePaymentToGas,
   deletePaymentFromGas,
@@ -287,60 +288,102 @@ export default function App() {
     return sheetConfig.gasDeploymentUrl || getEffectiveGasUrl();
   };
 
+  // Control de concurrencia y caché para evitar que el auto-sync cada 30s sobrescriba eliminaciones o ediciones en curso
+  const pendingWritesCountRef = useRef<number>(0);
+  const lastWriteTimestampRef = useRef<number>(0);
+  const deletedPatientKeysRef = useRef<Set<string>>(new Set());
+
+  const normalizeKey = (val?: string) =>
+    String(val || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\s_-]+/g, '');
+
   // Unified cloud sync dispatchers
-  const syncPatientToCloud = async (patient: Patient, isUpdate: boolean = false) => {
+  const syncPatientToCloud = async (
+    patient: Patient,
+    isUpdate: boolean = false,
+    patientPaymentsList?: Payment[]
+  ) => {
     const gasUrl = getActiveGasUrl();
     const token = await getAccessToken();
     let synced = false;
 
-    if (gasUrl) {
-      try {
-        await savePatientToGas(gasUrl, patient);
-        synced = true;
-      } catch (err: any) {
-        console.error('Error enviando paciente a Apps Script:', err);
-        showToast(`⚠️ Error al enviar paciente a Google Sheets: ${err?.message || 'Fallo de conexión'}`);
-      }
-    }
+    pendingWritesCountRef.current += 1;
+    lastWriteTimestampRef.current = Date.now();
 
-    if (token && sheetConfig.spreadsheetId) {
-      try {
-        if (isUpdate) {
-          await updatePatientInGoogleSheet(token, sheetConfig.spreadsheetId, patient);
-        } else {
-          await appendPatientToGoogleSheet(token, sheetConfig.spreadsheetId, patient);
+    try {
+      if (gasUrl) {
+        try {
+          if (isUpdate) {
+            await updatePatientBudgetInGas(gasUrl, patient, patientPaymentsList);
+          } else {
+            await savePatientToGas(gasUrl, patient);
+          }
+          synced = true;
+        } catch (err: any) {
+          console.error('Error enviando paciente a Apps Script:', err);
+          showToast(`⚠️ Error al enviar paciente a Google Sheets: ${err?.message || 'Fallo de conexión'}`);
         }
-        synced = true;
-      } catch (err: any) {
-        console.error('Error enviando paciente a Google Sheets API:', err);
       }
-    }
 
-    if (synced) {
-      setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+      if (token && sheetConfig.spreadsheetId) {
+        try {
+          if (isUpdate) {
+            await updatePatientInGoogleSheet(token, sheetConfig.spreadsheetId, patient);
+          } else {
+            await appendPatientToGoogleSheet(token, sheetConfig.spreadsheetId, patient);
+          }
+          synced = true;
+        } catch (err: any) {
+          console.error('Error enviando paciente a Google Sheets API:', err);
+        }
+      }
+
+      if (synced) {
+        lastWriteTimestampRef.current = Date.now();
+        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+      }
+    } finally {
+      pendingWritesCountRef.current = Math.max(0, pendingWritesCountRef.current - 1);
     }
   };
 
-  const deletePatientFromCloud = async (patientId: string) => {
+  const deletePatientFromCloud = async (
+    patientId: string,
+    patientName?: string,
+    idNumber?: string
+  ) => {
     const gasUrl = getActiveGasUrl();
     const token = await getAccessToken();
 
-    if (gasUrl) {
-      try {
-        await deletePatientFromGas(gasUrl, patientId);
-        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-      } catch (err: any) {
-        console.error('Error eliminando paciente en Apps Script:', err);
-      }
-    }
+    pendingWritesCountRef.current += 1;
+    lastWriteTimestampRef.current = Date.now();
 
-    if (token && sheetConfig.spreadsheetId) {
-      try {
-        await deletePatientFromGoogleSheet(token, sheetConfig.spreadsheetId, patientId);
-        setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
-      } catch (err: any) {
-        console.error('Error eliminando paciente en Google Sheets API:', err);
+    try {
+      if (gasUrl) {
+        try {
+          await deletePatientFromGas(gasUrl, patientId, patientName, idNumber);
+          lastWriteTimestampRef.current = Date.now();
+          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+        } catch (err: any) {
+          console.error('Error eliminando paciente en Apps Script:', err);
+        }
       }
+
+      if (token && sheetConfig.spreadsheetId) {
+        try {
+          await deletePatientFromGoogleSheet(token, sheetConfig.spreadsheetId, patientId);
+          lastWriteTimestampRef.current = Date.now();
+          setSheetConfig((prev) => ({ ...prev, lastSyncTime: new Date().toLocaleTimeString('es-ES') }));
+        } catch (err: any) {
+          console.error('Error eliminando paciente en Google Sheets API:', err);
+        }
+      }
+    } finally {
+      pendingWritesCountRef.current = Math.max(0, pendingWritesCountRef.current - 1);
     }
   };
 
@@ -712,9 +755,15 @@ export default function App() {
     try {
       const result = await fetchAllFromGoogleSheet(token, sheetConfig.spreadsheetId);
       if (result) {
-        if (result.patients.length > 0) setPatients(result.patients);
-        if (result.payments.length > 0) setPayments(result.payments);
-        if (result.refunds.length > 0) setRefunds(result.refunds);
+        const cleanSheetPatients = (result.patients || []).filter(
+          (p) => !deletedPatientKeysRef.current.has(p.id)
+        );
+        setPatients(cleanSheetPatients);
+        saveLocalPatients(cleanSheetPatients);
+        setPayments(result.payments || []);
+        saveLocalPayments(result.payments || []);
+        setRefunds(result.refunds || []);
+        saveLocalRefunds(result.refunds || []);
         if (result.users && result.users.length > 0) setUsers(result.users);
         if (result.procedures && result.procedures.length > 0) {
           setProcedures(result.procedures);
@@ -762,7 +811,18 @@ export default function App() {
       return;
     }
     if (isFetchingGasRef.current) return;
+
+    // Si hay una escritura/eliminación en curso o recién ejecutada hace menos de 8s,
+    // omitir el polling silencioso para evitar condiciones de carrera (race conditions)
+    if (
+      isSilent &&
+      (pendingWritesCountRef.current > 0 || Date.now() - lastWriteTimestampRef.current < 8000)
+    ) {
+      return;
+    }
+
     isFetchingGasRef.current = true;
+    const fetchStartedAt = Date.now();
 
     if (!isSilent) {
       setSheetConfig((prev) => ({ ...prev, isSyncing: true, error: null }));
@@ -770,24 +830,81 @@ export default function App() {
 
     try {
       const data = await fetchAllFromGas(gasUrl);
-      if (data.patients && Array.isArray(data.patients) && data.patients.length > 0) {
-        setPatients(data.patients);
+
+      // Si ocurrió una operación de escritura/borrado mientras el GET_ALL estaba en vuelo, descartar lectura obsoleta
+      if (isSilent && (pendingWritesCountRef.current > 0 || lastWriteTimestampRef.current > fetchStartedAt)) {
+        return;
       }
+
+      if (data.patients && Array.isArray(data.patients)) {
+        // Filtrar cualquier ID que haya sido eliminado en esta sesión y fusionar preservando metadatos locales
+        const validRemotePatients = data.patients.filter(
+          (rp) =>
+            !deletedPatientKeysRef.current.has(rp.id) &&
+            String(rp.status || '').toUpperCase() !== 'DELETED'
+        );
+
+        setPatients((prevLocal) => {
+          const localMap = new Map<string, Patient>();
+          prevLocal.forEach((lp) => localMap.set(lp.id, lp));
+
+          const merged = validRemotePatients.map((rp) => {
+            const existingLocal = localMap.get(rp.id);
+            if (!existingLocal) return rp;
+            return {
+              ...existingLocal,
+              ...rp,
+              initialPayment:
+                rp.initialPayment !== undefined ? rp.initialPayment : existingLocal.initialPayment,
+              originalSubtotal: rp.originalSubtotal ?? existingLocal.originalSubtotal,
+              discountPercent: rp.discountPercent ?? existingLocal.discountPercent,
+              discountAmount: rp.discountAmount ?? existingLocal.discountAmount,
+              couponCode: rp.couponCode ?? existingLocal.couponCode,
+              couponDiscount: rp.couponDiscount ?? existingLocal.couponDiscount,
+              totalDiscount: rp.totalDiscount ?? existingLocal.totalDiscount,
+              procedureItems: rp.procedureItems ?? existingLocal.procedureItems,
+              paymentSchedule: rp.paymentSchedule ?? existingLocal.paymentSchedule,
+              financingPlanId: rp.financingPlanId ?? existingLocal.financingPlanId,
+              financingMonths: rp.financingMonths ?? existingLocal.financingMonths,
+              financingFrequency: rp.financingFrequency ?? existingLocal.financingFrequency,
+              financingInstallmentsCount:
+                rp.financingInstallmentsCount ?? existingLocal.financingInstallmentsCount,
+              financingInstallmentAmount:
+                rp.financingInstallmentAmount ?? existingLocal.financingInstallmentAmount,
+              financingDeferralDays:
+                rp.financingDeferralDays ?? existingLocal.financingDeferralDays,
+            };
+          });
+          saveLocalPatients(merged);
+          return merged;
+        });
+      }
+
       if (data.payments && Array.isArray(data.payments)) {
-        if (data.payments.length > 0 || (data.patients && data.patients.length > 0)) {
-          setPayments(data.payments);
-        }
+        const cleanPayments = data.payments.filter(
+          (pay) => !deletedPatientKeysRef.current.has(pay.patientId)
+        );
+        setPayments(cleanPayments);
+        saveLocalPayments(cleanPayments);
       }
+
       if (data.refunds && Array.isArray(data.refunds)) {
-        if (data.refunds.length > 0 || (data.patients && data.patients.length > 0)) {
-          setRefunds(data.refunds);
-        }
+        const cleanRefunds = data.refunds.filter(
+          (ref) => !deletedPatientKeysRef.current.has(ref.patientId)
+        );
+        setRefunds(cleanRefunds);
+        saveLocalRefunds(cleanRefunds);
       }
+
       if (data.users && Array.isArray(data.users) && data.users.length > 0) {
         setUsers(data.users);
       }
-      if (data.crmEvents && Array.isArray(data.crmEvents) && data.crmEvents.length > 0) {
-        setCrmEvents(data.crmEvents);
+      if (data.crmEvents && Array.isArray(data.crmEvents)) {
+        const cleanEvents = data.crmEvents.filter(
+          (ev) => !deletedPatientKeysRef.current.has(ev.patientId)
+        );
+        setCrmEvents(cleanEvents);
+        saveLocalCRMEvents(cleanEvents);
       }
       if (data.procedures && Array.isArray(data.procedures) && data.procedures.length > 0) {
         setProcedures(data.procedures);
@@ -1017,11 +1134,39 @@ export default function App() {
     newPatient: Patient,
     initialPayment?: Omit<Payment, 'id' | 'patientId' | 'patientName' | 'createdAt'>
   ) => {
-    let updatedPayments = [...payments];
+    lastWriteTimestampRef.current = Date.now();
+
+    // Si la usuaria está reingresando a un paciente con el mismo nombre o DNI,
+    // limpiar cualquier registro previo o clave en caché de borrado para evitar colisiones
+    const normNewName = normalizeKey(newPatient.fullName);
+    const normNewDni = normalizeKey(newPatient.idNumber);
+
+    deletedPatientKeysRef.current.delete(newPatient.id);
+
+    const duplicateOldIds = patients
+      .filter((p) => {
+        const sameName = normNewName && normalizeKey(p.fullName) === normNewName;
+        const sameDni = normNewDni && normalizeKey(p.idNumber) === normNewDni;
+        return p.id === newPatient.id || (sameName && (!normNewDni || !p.idNumber || sameDni));
+      })
+      .map((p) => p.id);
+
+    let basePatients = patients;
+    let basePayments = payments;
+    let baseCrmEvents = crmEvents;
+
+    if (duplicateOldIds.length > 0) {
+      basePatients = patients.filter((p) => !duplicateOldIds.includes(p.id));
+      basePayments = payments.filter((pay) => !duplicateOldIds.includes(pay.patientId));
+      baseCrmEvents = crmEvents.filter((ev) => !duplicateOldIds.includes(ev.patientId));
+    }
+
+    let updatedPayments = [...basePayments];
+    let createdInitialPaymentRecord: Payment | null = null;
 
     if (initialPayment && initialPayment.amount > 0) {
-      const paymentRecord: Payment = {
-        id: `PAG-${Math.floor(1000 + Math.random() * 9000)}`,
+      createdInitialPaymentRecord = {
+        id: `PAG-${Date.now().toString().slice(-5)}-${Math.floor(10 + Math.random() * 90)}`,
         patientId: newPatient.id,
         patientName: newPatient.fullName,
         amount: initialPayment.amount,
@@ -1032,26 +1177,35 @@ export default function App() {
         registeredBy: initialPayment.registeredBy,
         createdAt: new Date().toISOString(),
       };
-      updatedPayments = [paymentRecord, ...updatedPayments];
+      updatedPayments = [createdInitialPaymentRecord, ...updatedPayments];
       setPayments(updatedPayments);
-
-      // Async sync to Google Sheets if connected
-      syncPaymentToCloud(paymentRecord).catch(console.error);
+      saveLocalPayments(updatedPayments);
     }
 
-    const updatedPatients = [newPatient, ...patients];
+    const updatedPatients = [newPatient, ...basePatients];
     setPatients(updatedPatients);
+    saveLocalPatients(updatedPatients);
 
     // Automate CRM events creation
     const newCRMEvents = generatePatientCRMEvents(newPatient, initialPayment?.amount);
     if (newCRMEvents.length > 0) {
-      setCrmEvents((prev) => [...newCRMEvents, ...prev]);
+      const mergedEvents = [...newCRMEvents, ...baseCrmEvents];
+      setCrmEvents(mergedEvents);
+      saveLocalCRMEvents(mergedEvents);
     }
 
     showToast(`Paciente ${newPatient.fullName} registrada y ${newCRMEvents.length} eventos creados en CRM.`);
 
-    // Async sync to Google Sheets if connected (Direct OAuth or Google Apps Script)
-    syncPatientToCloud(newPatient, false).catch(console.error);
+    // Sincronización secuencial en la nube: primero guardar paciente y luego el abono inicial
+    // para que Google Sheets no intente actualizar el saldo de un paciente que aún no fue insertado
+    try {
+      await syncPatientToCloud(newPatient, false);
+      if (createdInitialPaymentRecord) {
+        await syncPaymentToCloud(createdInitialPaymentRecord);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleOpenEditPatient = (patient: Patient) => {
@@ -1060,14 +1214,75 @@ export default function App() {
     setIsEditPatientModalOpen(true);
   };
 
-  const handleUpdatePatient = (updatedPatient: Patient) => {
-    setPatients((prev) =>
-      prev.map((p) => (p.id === updatedPatient.id ? updatedPatient : p))
+  const handleUpdatePatient = (updatedPatient: Patient, updatedInitialPayment?: number) => {
+    lastWriteTimestampRef.current = Date.now();
+
+    // Sincronizar también el registro de abono inicial en el historial de pagos si fue modificado (ej. cambiado a $0 o a otro monto)
+    let nextPayments = [...payments];
+    const patPayments = nextPayments.filter((p) => p.patientId === updatedPatient.id);
+    const initialPaymentRecord = patPayments.find((p) => {
+      const text = `${p.notes || ''} ${p.reference || ''}`.toLowerCase();
+      return (
+        text.includes('inicial') ||
+        text.includes('seña') ||
+        text.includes('sena') ||
+        text.includes('anticipo') ||
+        text.includes('primer abono')
+      );
+    });
+
+    if (updatedInitialPayment !== undefined) {
+      if (updatedInitialPayment === 0 && initialPaymentRecord) {
+        // La usuaria marcó $0 en Inicial: removemos el pago inicial pero conservamos todos los abonos posteriores intactos
+        nextPayments = nextPayments.filter((p) => p.id !== initialPaymentRecord.id);
+      } else if (updatedInitialPayment > 0 && initialPaymentRecord) {
+        // Actualizar el monto y nombre del pago inicial existente
+        nextPayments = nextPayments.map((p) =>
+          p.id === initialPaymentRecord.id
+            ? {
+                ...p,
+                patientName: updatedPatient.fullName,
+                amount: updatedInitialPayment,
+                notes: `Primer abono (Inicial) actualizado en edición de presupuesto. Procedimiento: ${updatedPatient.procedure}`,
+              }
+            : p.patientId === updatedPatient.id
+            ? { ...p, patientName: updatedPatient.fullName }
+            : p
+        );
+      } else if (updatedInitialPayment > 0 && !initialPaymentRecord) {
+        // No tenía pago inicial previo y ahora se le asignó uno en la edición del presupuesto
+        const newInitialRecord: Payment = {
+          id: `PAG-INI-${Date.now().toString().slice(-4)}`,
+          patientId: updatedPatient.id,
+          patientName: updatedPatient.fullName,
+          amount: updatedInitialPayment,
+          date: updatedPatient.registrationDate || new Date().toISOString().split('T')[0],
+          paymentMethod: 'Transferencia',
+          reference: 'Abono Inicial (Presupuesto)',
+          registeredBy: activeUser?.fullName || 'Secretaría Cobranzas',
+          notes: `Abono inicial registrado en edición de presupuesto. Procedimiento: ${updatedPatient.procedure}`,
+          createdAt: new Date().toISOString(),
+        };
+        nextPayments = [newInitialRecord, ...nextPayments];
+      }
+    }
+
+    // Asegurar que todos los abonos del paciente reflejen el nombre actualizado
+    nextPayments = nextPayments.map((p) =>
+      p.patientId === updatedPatient.id ? { ...p, patientName: updatedPatient.fullName } : p
     );
+    setPayments(nextPayments);
+    saveLocalPayments(nextPayments);
+
+    setPatients((prev) => {
+      const updatedList = prev.map((p) => (p.id === updatedPatient.id ? updatedPatient : p));
+      saveLocalPatients(updatedList);
+      return updatedList;
+    });
 
     // Sync corresponding CRM events
-    setCrmEvents((prev) =>
-      prev.map((ev) => {
+    setCrmEvents((prev) => {
+      const updatedEvs = prev.map((ev) => {
         if (ev.patientId === updatedPatient.id) {
           return {
             ...ev,
@@ -1077,37 +1292,61 @@ export default function App() {
           };
         }
         return ev;
-      })
-    );
+      });
+      saveLocalCRMEvents(updatedEvs);
+      return updatedEvs;
+    });
 
     if (selectedPatientForDetails?.id === updatedPatient.id) {
       setSelectedPatientForDetails(updatedPatient);
     }
 
-    // Async sync updated patient to Google Sheets
-    syncPatientToCloud(updatedPatient, true).catch(console.error);
+    // Enviar actualización completa de presupuesto y pagos del paciente a Google Sheets
+    const patientPaymentsForCloud = nextPayments.filter((p) => p.patientId === updatedPatient.id);
+    syncPatientToCloud(updatedPatient, true, patientPaymentsForCloud).catch(console.error);
 
-    showToast(`Registro de "${updatedPatient.fullName}" actualizado correctamente.`);
+    showToast(`Presupuesto y ficha de "${updatedPatient.fullName}" actualizados correctamente.`);
   };
 
   const handleDeletePatient = (patientId: string) => {
+    lastWriteTimestampRef.current = Date.now();
     const patientToDelete = patients.find((p) => p.id === patientId);
     const name = patientToDelete?.fullName || 'la paciente';
+    const idNumber = patientToDelete?.idNumber || '';
 
-    // Borrado en cascada local (paciente + abonos + reintegros + eventos)
-    setPatients((prev) => prev.filter((p) => p.id !== patientId));
-    setPayments((prev) => prev.filter((pay) => pay.patientId !== patientId));
-    setRefunds((prev) => prev.filter((ref) => ref.patientId !== patientId));
-    setCrmEvents((prev) => prev.filter((ev) => ev.patientId !== patientId));
+    // Registrar ID en conjunto de eliminados de la sesión para impedir que un polling en tránsito lo reviva
+    deletedPatientKeysRef.current.add(patientId);
+
+    // Borrado en cascada local e invalidación inmediata de caché en LocalStorage
+    setPatients((prev) => {
+      const remaining = prev.filter((p) => p.id !== patientId);
+      saveLocalPatients(remaining);
+      return remaining;
+    });
+    setPayments((prev) => {
+      const remaining = prev.filter((pay) => pay.patientId !== patientId);
+      saveLocalPayments(remaining);
+      return remaining;
+    });
+    setRefunds((prev) => {
+      const remaining = prev.filter((ref) => ref.patientId !== patientId);
+      saveLocalRefunds(remaining);
+      return remaining;
+    });
+    setCrmEvents((prev) => {
+      const remaining = prev.filter((ev) => ev.patientId !== patientId);
+      saveLocalCRMEvents(remaining);
+      return remaining;
+    });
 
     if (selectedPatientForDetails?.id === patientId) {
       setSelectedPatientForDetails(null);
     }
 
-    showToast(`Paciente "${name}" y todos sus abonos y registros asociados eliminados.`);
+    showToast(`Paciente "${name}" y todos sus registros asociados fueron eliminados.`);
 
-    // Borrado en cascada en Google Sheets
-    deletePatientFromCloud(patientId).catch(console.error);
+    // Borrado físico en cascada en Google Sheets (por ID, Nombre y DNI)
+    deletePatientFromCloud(patientId, patientToDelete?.fullName, idNumber).catch(console.error);
   };
 
   const handleSavePayment = async (
@@ -1710,9 +1949,12 @@ export default function App() {
           setPatientToEdit(null);
         }}
         patient={patientToEdit}
+        payments={payments}
         onSavePatient={handleUpdatePatient}
         availableProcedures={procedures}
         availableCampaigns={campaigns}
+        availableFinancingPlans={financingPlans}
+        availableCoupons={coupons}
         onAddCampaign={handleAddCampaign}
       />
 

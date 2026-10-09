@@ -20,7 +20,7 @@ var SCHEMA = {
       'Email', 'Ciudad', 'Campaña', 'Procedimiento', 'Doctor',
       'Costo Total ($)', 'Total Abonado ($)', 'Saldo Pendiente ($)',
       'Fecha Registro', 'Estado', 'Plan Financiamiento', 'Próximo Vencimiento',
-      'Notas', 'Última Actualización'
+      'Notas', 'Última Actualización', 'Abono Inicial ($)'
     ]
   },
   ABONOS: {
@@ -316,10 +316,16 @@ function doPost(e) {
         return responderJSON(obtenerTodosLosDatos(ss));
 
       case 'SAVE_PATIENT':
+      case 'CREATE_PATIENT':
+      case 'ADD_BUDGET':
         return responderJSON(guardarPaciente(ss, payload.patient));
 
+      case 'UPDATE_PATIENT_BUDGET':
+      case 'UPDATE_PATIENT':
+        return responderJSON(actualizarPresupuestoPaciente(ss, payload.patient, payload.payments));
+
       case 'DELETE_PATIENT':
-        return responderJSON(borrarPacienteEnCascada(ss, payload.patientId));
+        return responderJSON(borrarPacienteEnCascada(ss, payload.patientId, payload.patientName, payload.idNumber));
 
       case 'SAVE_PAYMENT':
         return responderJSON(guardarPagoYActualizarSaldo(ss, payload.payment));
@@ -429,24 +435,39 @@ function leerHojaComoObjetos(sheet, mapperFn) {
 }
 
 function mapearPacienteDesdeFila(r) {
+  var statusRaw = String(r[13] || 'pending').trim();
+  if (statusRaw.toUpperCase() === 'DELETED' || statusRaw.toUpperCase() === 'ELIMINADO') {
+    return null;
+  }
+  var totalCost = parseFloat(String(r[9]).replace(/[^0-9.-]/g, '')) || 0;
+  var totalPaid = parseFloat(String(r[10]).replace(/[^0-9.-]/g, '')) || 0;
+  var rawInitial = r.length > 18 && r[18] !== '' && r[18] !== null && r[18] !== undefined
+    ? parseFloat(String(r[18]).replace(/[^0-9.-]/g, ''))
+    : undefined;
+  var initialPayment = (rawInitial !== undefined && !isNaN(rawInitial)) ? Math.max(0, rawInitial) : undefined;
+  var effectivePaid = Math.max(totalPaid, initialPayment || 0);
+  var balance = Math.max(0, totalCost - effectivePaid);
+  var resolvedStatus = balance <= 0 && totalCost > 0 ? 'paid' : (statusRaw.toLowerCase() === 'overdue' ? 'overdue' : 'pending');
+
   return {
-    id: String(r[0]),
-    fullName: String(r[1] || ''),
-    phone: String(r[2] || ''),
-    idNumber: String(r[3] || ''),
-    email: String(r[4] || ''),
-    city: String(r[5] || ''),
-    campaign: String(r[6] || ''),
-    procedure: String(r[7] || ''),
-    doctor: String(r[8] || 'Dr. Jorge Apelencia'),
-    totalCost: parseFloat(String(r[9]).replace(/[^0-9.-]/g, '')) || 0,
-    totalPaid: parseFloat(String(r[10]).replace(/[^0-9.-]/g, '')) || 0,
-    balance: parseFloat(String(r[11]).replace(/[^0-9.-]/g, '')) || 0,
+    id: String(r[0]).trim(),
+    fullName: String(r[1] || '').trim(),
+    phone: String(r[2] || '').trim(),
+    idNumber: String(r[3] || '').trim(),
+    email: String(r[4] || '').trim(),
+    city: String(r[5] || '').trim(),
+    campaign: String(r[6] || '').trim(),
+    procedure: String(r[7] || '').trim(),
+    doctor: String(r[8] || 'Dr. Jorge Apelencia').trim(),
+    totalCost: totalCost,
+    totalPaid: effectivePaid,
+    initialPayment: initialPayment,
+    balance: balance,
     registrationDate: formatearFecha(r[12]),
-    status: String(r[13] || 'pending'),
-    financingPlanName: String(r[14] || ''),
+    status: resolvedStatus,
+    financingPlanName: String(r[14] || '').trim(),
     nextPaymentDate: r[15] ? formatearFecha(r[15]) : undefined,
-    notes: String(r[16] || '')
+    notes: String(r[16] || '').trim()
   };
 }
 
@@ -595,25 +616,76 @@ function formatearFecha(valor) {
   return String(valor).split('T')[0];
 }
 
+/**
+ * Inserta o reactiva/actualiza un paciente (createPatient / addBudget).
+ * Soporta reutilizar registros previamente eliminados o reingresados con el mismo ID, DNI o Nombre
+ * sin duplicar filas ni bloquear la transacción.
+ */
 function guardarPaciente(ss, p) {
-  if (!p || !p.id) return { status: 'error', message: 'Datos de paciente inválidos' };
+  if (!p || (!p.id && !p.fullName)) {
+    return { status: 'error', message: 'Datos de paciente inválidos' };
+  }
   var sheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
   var values = sheet.getDataRange().getValues();
-  var rowIndex = -1;
+  var matchingRows = [];
+
+  var targetId = String(p.id || '').trim().toUpperCase();
+  var targetDni = normalizarTexto(p.idNumber);
+  var targetName = normalizarTexto(p.fullName);
 
   for (var i = 1; i < values.length; i++) {
-    if (String(values[i][0]) === String(p.id)) {
-      rowIndex = i + 1;
-      break;
+    var rowId = String(values[i][0] || '').trim().toUpperCase();
+    var rowName = normalizarTexto(values[i][1]);
+    var rowDni = normalizarTexto(values[i][3]);
+    var rowStatus = String(values[i][13] || '').trim().toUpperCase();
+
+    var isIdMatch = targetId && rowId === targetId;
+    var isDeletedMatch = (rowStatus === 'DELETED' || rowStatus === 'ELIMINADO') &&
+      ((targetDni && rowDni === targetDni) || (targetName && rowName === targetName));
+    var isSameIdentityReentry = (targetName && rowName === targetName) &&
+      (!targetDni || !rowDni || targetDni === rowDni);
+
+    if (isIdMatch || isDeletedMatch || isSameIdentityReentry) {
+      matchingRows.push(i + 1);
     }
   }
 
+  // Si existían filas duplicadas residuales para el mismo paciente, eliminar las sobrantes de abajo hacia arriba
+  if (matchingRows.length > 1) {
+    for (var d = matchingRows.length - 1; d >= 1; d--) {
+      sheet.deleteRow(matchingRows[d]);
+    }
+  }
+
+  var rowIndex = matchingRows.length > 0 ? matchingRows[0] : -1;
+
+  // Asegurar consistencia entre Abono Inicial ($0 permitido) y Total Abonado (Inicial + Abonos)
+  var totalCost = Number(p.totalCost) || 0;
+  var initialPayment = p.initialPayment !== undefined && p.initialPayment !== null ? Math.max(0, Number(p.initialPayment) || 0) : 0;
+  var totalPaid = Math.max(Number(p.totalPaid) || 0, initialPayment);
+  var balance = Math.max(0, totalCost - totalPaid);
+  var status = balance <= 0 && totalCost > 0 ? 'paid' : (p.status === 'overdue' ? 'overdue' : 'pending');
+
   var rowData = [
-    p.id, p.fullName, p.phone, p.idNumber, p.email, p.city, p.campaign,
-    p.procedure, p.doctor || 'Dr. Jorge Apelencia', p.totalCost, p.totalPaid,
-    p.balance, p.registrationDate || new Date().toISOString(), p.status || 'pending',
-    p.financingPlanName || '', p.nextPaymentDate || '', p.notes || '',
-    new Date().toISOString()
+    p.id || ('PAC-' + Math.floor(1000 + Math.random() * 9000)),
+    String(p.fullName || '').trim(),
+    String(p.phone || '').trim(),
+    String(p.idNumber || '').trim(),
+    String(p.email || '').trim(),
+    String(p.city || '').trim(),
+    String(p.campaign || 'Referido').trim(),
+    String(p.procedure || '').trim(),
+    String(p.doctor || 'Dr. Jorge Apelencia').trim(),
+    totalCost,
+    totalPaid,
+    balance,
+    p.registrationDate || new Date().toISOString().split('T')[0],
+    status,
+    p.financingPlanName || '',
+    p.nextPaymentDate || '',
+    p.notes || '',
+    new Date().toISOString(),
+    initialPayment
   ];
 
   if (rowIndex > 1) {
@@ -621,23 +693,142 @@ function guardarPaciente(ss, p) {
   } else {
     sheet.appendRow(rowData);
   }
-  return { status: 'ok', message: 'Paciente guardado' };
+  SpreadsheetApp.flush();
+  return { status: 'ok', message: 'Paciente guardado correctamente', patientId: rowData[0] };
 }
 
-function borrarPacienteEnCascada(ss, patientId) {
+/**
+ * Endpoint dedicado: updatePatientBudget
+ * Modifica directamente el presupuesto de un paciente existente (nombre, procedimiento,
+ * costo total, inicial $0 o mayor, abonos y plan) y sincroniza en cascada su nombre
+ * en las hojas de Abonos, Reintegros y CRM sin necesidad de borrar y recrear al paciente.
+ */
+function actualizarPresupuestoPaciente(ss, p, updatedPayments) {
+  if (!p || !p.id) {
+    return { status: 'error', message: 'ID de paciente requerido para actualizar presupuesto' };
+  }
+
+  // 1. Si se enviaron pagos actualizados o abono inicial sincronizado, actualizar hoja Abonos para este paciente
+  var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
+  var payValues = paySheet.getDataRange().getValues();
+  var accumulatedPaymentsSum = 0;
+
+  if (Array.isArray(updatedPayments)) {
+    // Borrar pagos anteriores del paciente de abajo hacia arriba y reinsertar los vigentes
+    for (var j = payValues.length - 1; j >= 1; j--) {
+      if (String(payValues[j][1]).trim() === String(p.id).trim()) {
+        paySheet.deleteRow(j + 1);
+      }
+    }
+    for (var k = 0; k < updatedPayments.length; k++) {
+      var pay = updatedPayments[k];
+      if (String(pay.patientId).trim() === String(p.id).trim()) {
+        var amt = Number(pay.amount) || 0;
+        accumulatedPaymentsSum += amt;
+        paySheet.appendRow([
+          pay.id || ('PAG-' + Math.floor(1000 + Math.random() * 9000)),
+          p.id,
+          p.fullName,
+          amt,
+          pay.date || new Date().toISOString().split('T')[0],
+          pay.paymentMethod || 'Transferencia',
+          pay.reference || '',
+          pay.registeredBy || 'Secretaría',
+          pay.notes || '',
+          pay.createdAt || new Date().toISOString()
+        ]);
+      }
+    }
+  } else {
+    // Actualizar el nombre del paciente en sus pagos existentes y sumar todos sus abonos registrados
+    for (var m = 1; m < payValues.length; m++) {
+      if (String(payValues[m][1]).trim() === String(p.id).trim()) {
+        accumulatedPaymentsSum += Number(payValues[m][3]) || 0;
+        if (p.fullName && String(payValues[m][2]) !== String(p.fullName)) {
+          paySheet.getRange(m + 1, 3).setValue(p.fullName);
+        }
+      }
+    }
+  }
+
+  // Restar reintegros si existen
+  var refSheet = obtenerOCrearHoja(ss, SCHEMA.REINTEGROS);
+  var refValues = refSheet.getDataRange().getValues();
+  var accumulatedRefundsSum = 0;
+  for (var rIdx = 1; rIdx < refValues.length; rIdx++) {
+    if (String(refValues[rIdx][1]).trim() === String(p.id).trim()) {
+      accumulatedRefundsSum += Number(refValues[rIdx][3]) || 0;
+      if (p.fullName && String(refValues[rIdx][2]) !== String(p.fullName)) {
+        refSheet.getRange(rIdx + 1, 3).setValue(p.fullName);
+      }
+    }
+  }
+
+  // Actualizar nombre y procedimiento en eventos CRM del paciente
+  var crmSheet = obtenerOCrearHoja(ss, SCHEMA.CRM);
+  var crmValues = crmSheet.getDataRange().getValues();
+  for (var cIdx = 1; cIdx < crmValues.length; cIdx++) {
+    if (String(crmValues[cIdx][1]).trim() === String(p.id).trim()) {
+      if (p.fullName) crmSheet.getRange(cIdx + 1, 3).setValue(p.fullName);
+      if (p.phone) crmSheet.getRange(cIdx + 1, 4).setValue(p.phone);
+      if (p.procedure) crmSheet.getRange(cIdx + 1, 14).setValue(p.procedure);
+    }
+  }
+
+  // Recalcular totalPaid respetando Inicial = $0 con Abonos > $0, o Inicial > $0 sin abonos adicionales
+  var explicitPaid = p.totalPaid !== undefined ? Number(p.totalPaid) : Math.max(0, accumulatedPaymentsSum - accumulatedRefundsSum);
+  p.totalPaid = Math.max(0, explicitPaid);
+
+  var saveResult = guardarPaciente(ss, p);
+  SpreadsheetApp.flush();
+  return {
+    status: 'ok',
+    message: 'Presupuesto y datos del paciente actualizados correctamente',
+    patientId: p.id,
+    details: saveResult
+  };
+}
+
+/**
+ * Eliminación física completa en cascada (deletePatient).
+ * Recorre todas las hojas de abajo hacia arriba (reverse loop) para eliminar TODAS las apariciones
+ * del paciente por ID (o por Nombre/DNI si quedaron registros huérfanos), evitando conflictos de índice
+ * o filas fantasma que impidan volver a registrar al paciente.
+ */
+function borrarPacienteEnCascada(ss, patientId, patientName, idNumber) {
+  var targetId = String(patientId || '').trim().toUpperCase();
+  var targetName = normalizarTexto(patientName);
+  var targetDni = normalizarTexto(idNumber);
+
   var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
   var patValues = patSheet.getDataRange().getValues();
-  for (var i = 1; i < patValues.length; i++) {
-    if (String(patValues[i][0]) === String(patientId)) {
+  var deletedNames = [];
+  if (targetName) deletedNames.push(targetName);
+
+  // Recorrido inverso para no desplazar los índices al borrar múltiples filas coincidentes
+  for (var i = patValues.length - 1; i >= 1; i--) {
+    var rowId = String(patValues[i][0] || '').trim().toUpperCase();
+    var rowName = normalizarTexto(patValues[i][1]);
+    var rowDni = normalizarTexto(patValues[i][3]);
+
+    var matchById = targetId && rowId === targetId;
+    var matchByName = targetName && rowName === targetName;
+    var matchByDni = targetDni && rowDni === targetDni;
+
+    if (matchById || matchByName || matchByDni) {
+      if (rowName && deletedNames.indexOf(rowName) === -1) {
+        deletedNames.push(rowName);
+      }
       patSheet.deleteRow(i + 1);
-      break;
     }
   }
 
   var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
   var payValues = paySheet.getDataRange().getValues();
   for (var j = payValues.length - 1; j >= 1; j--) {
-    if (String(payValues[j][1]) === String(patientId)) {
+    var payPatId = String(payValues[j][1] || '').trim().toUpperCase();
+    var payPatName = normalizarTexto(payValues[j][2]);
+    if ((targetId && payPatId === targetId) || (payPatName && deletedNames.indexOf(payPatName) !== -1)) {
       paySheet.deleteRow(j + 1);
     }
   }
@@ -645,7 +836,9 @@ function borrarPacienteEnCascada(ss, patientId) {
   var refSheet = obtenerOCrearHoja(ss, SCHEMA.REINTEGROS);
   var refValues = refSheet.getDataRange().getValues();
   for (var k = refValues.length - 1; k >= 1; k--) {
-    if (String(refValues[k][1]) === String(patientId)) {
+    var refPatId = String(refValues[k][1] || '').trim().toUpperCase();
+    var refPatName = normalizarTexto(refValues[k][2]);
+    if ((targetId && refPatId === targetId) || (refPatName && deletedNames.indexOf(refPatName) !== -1)) {
       refSheet.deleteRow(k + 1);
     }
   }
@@ -653,37 +846,91 @@ function borrarPacienteEnCascada(ss, patientId) {
   var crmSheet = obtenerOCrearHoja(ss, SCHEMA.CRM);
   var crmValues = crmSheet.getDataRange().getValues();
   for (var m = crmValues.length - 1; m >= 1; m--) {
-    if (String(crmValues[m][1]) === String(patientId)) {
+    var crmPatId = String(crmValues[m][1] || '').trim().toUpperCase();
+    var crmPatName = normalizarTexto(crmValues[m][2]);
+    if ((targetId && crmPatId === targetId) || (crmPatName && deletedNames.indexOf(crmPatName) !== -1)) {
       crmSheet.deleteRow(m + 1);
     }
   }
 
-  return { status: 'ok', message: 'Paciente y registros asociados eliminados en cascada' };
+  SpreadsheetApp.flush();
+  return { status: 'ok', message: 'Paciente y registros asociados eliminados físicamente en cascada' };
+}
+
+/**
+ * Recalcula el total abonado y el saldo pendiente de un paciente sumando todos sus abonos
+ * reales en la hoja Abonos menos los reintegros, respetando tanto Inicial = $0 con Abonos
+ * como Inicial > $0 sin abonos posteriores.
+ */
+function recalcularTotalesPacienteEnHoja(ss, patientId) {
+  if (!patientId) return;
+  var targetId = String(patientId).trim().toUpperCase();
+
+  var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
+  var payValues = paySheet.getDataRange().getValues();
+  var sumPayments = 0;
+  var paymentCount = 0;
+  for (var i = 1; i < payValues.length; i++) {
+    if (String(payValues[i][1] || '').trim().toUpperCase() === targetId) {
+      sumPayments += parseFloat(String(payValues[i][3]).replace(/[^0-9.-]/g, '')) || 0;
+      paymentCount++;
+    }
+  }
+
+  var refSheet = obtenerOCrearHoja(ss, SCHEMA.REINTEGROS);
+  var refValues = refSheet.getDataRange().getValues();
+  var sumRefunds = 0;
+  for (var r = 1; r < refValues.length; r++) {
+    if (String(refValues[r][1] || '').trim().toUpperCase() === targetId) {
+      sumRefunds += parseFloat(String(refValues[r][3]).replace(/[^0-9.-]/g, '')) || 0;
+    }
+  }
+
+  var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
+  var patValues = patSheet.getDataRange().getValues();
+  for (var j = 1; j < patValues.length; j++) {
+    if (String(patValues[j][0] || '').trim().toUpperCase() === targetId) {
+      var totalCost = parseFloat(String(patValues[j][9]).replace(/[^0-9.-]/g, '')) || 0;
+      var recordedInitial = patValues[j].length > 18 ? (parseFloat(String(patValues[j][18]).replace(/[^0-9.-]/g, '')) || 0) : 0;
+      var basePaid = paymentCount > 0 ? Math.max(sumPayments, recordedInitial) : recordedInitial;
+      var totalPaid = Math.max(0, basePaid - sumRefunds);
+      var balance = Math.max(0, totalCost - totalPaid);
+      var status = balance <= 0 && totalCost > 0 ? 'paid' : 'pending';
+
+      patSheet.getRange(j + 1, 11).setValue(totalPaid);
+      patSheet.getRange(j + 1, 12).setValue(balance);
+      patSheet.getRange(j + 1, 14).setValue(status);
+      patSheet.getRange(j + 1, 18).setValue(new Date().toISOString());
+      break;
+    }
+  }
 }
 
 function guardarPagoYActualizarSaldo(ss, p) {
   var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
-  paySheet.appendRow([
-    p.id, p.patientId, p.patientName, p.amount, p.date,
-    p.paymentMethod, p.reference || '', p.registeredBy || '',
-    p.notes || '', p.createdAt || new Date().toISOString()
-  ]);
-
-  var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
-  var patValues = patSheet.getDataRange().getValues();
-  for (var i = 1; i < patValues.length; i++) {
-    if (String(patValues[i][0]) === String(p.patientId)) {
-      var totalCost = Number(patValues[i][9]) || 0;
-      var totalPaid = (Number(patValues[i][10]) || 0) + Number(p.amount);
-      var balance = totalCost - totalPaid;
-      var status = balance <= 0 ? 'paid' : 'pending';
-      patSheet.getRange(i + 1, 11).setValue(totalPaid);
-      patSheet.getRange(i + 1, 12).setValue(balance);
-      patSheet.getRange(i + 1, 14).setValue(status);
-      patSheet.getRange(i + 1, 18).setValue(new Date().toISOString());
+  var values = paySheet.getDataRange().getValues();
+  var rowIndex = -1;
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]).trim() === String(p.id).trim()) {
+      rowIndex = i + 1;
       break;
     }
   }
+
+  var rowData = [
+    p.id, p.patientId, p.patientName, Number(p.amount) || 0, p.date,
+    p.paymentMethod, p.reference || '', p.registeredBy || '',
+    p.notes || '', p.createdAt || new Date().toISOString()
+  ];
+
+  if (rowIndex > 1) {
+    paySheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
+  } else {
+    paySheet.appendRow(rowData);
+  }
+
+  recalcularTotalesPacienteEnHoja(ss, p.patientId);
+  SpreadsheetApp.flush();
   return { status: 'ok', message: 'Pago registrado y saldo actualizado' };
 }
 
@@ -691,60 +938,32 @@ function borrarPagoYRecalcular(ss, paymentId) {
   var paySheet = obtenerOCrearHoja(ss, SCHEMA.ABONOS);
   var payValues = paySheet.getDataRange().getValues();
   var deletedPatientId = null;
-  var deletedAmount = 0;
 
-  for (var i = 1; i < payValues.length; i++) {
-    if (String(payValues[i][0]) === String(paymentId)) {
+  for (var i = payValues.length - 1; i >= 1; i--) {
+    if (String(payValues[i][0]).trim() === String(paymentId).trim()) {
       deletedPatientId = payValues[i][1];
-      deletedAmount = Number(payValues[i][3]) || 0;
       paySheet.deleteRow(i + 1);
       break;
     }
   }
 
   if (deletedPatientId) {
-    var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
-    var patValues = patSheet.getDataRange().getValues();
-    for (var j = 1; j < patValues.length; j++) {
-      if (String(patValues[j][0]) === String(deletedPatientId)) {
-        var totalCost = Number(patValues[j][9]) || 0;
-        var totalPaid = Math.max(0, (Number(patValues[j][10]) || 0) - deletedAmount);
-        var balance = totalCost - totalPaid;
-        var status = balance <= 0 ? 'paid' : 'pending';
-        patSheet.getRange(j + 1, 11).setValue(totalPaid);
-        patSheet.getRange(j + 1, 12).setValue(balance);
-        patSheet.getRange(j + 1, 14).setValue(status);
-        patSheet.getRange(j + 1, 18).setValue(new Date().toISOString());
-        break;
-      }
-    }
+    recalcularTotalesPacienteEnHoja(ss, deletedPatientId);
   }
+  SpreadsheetApp.flush();
   return { status: 'ok', message: 'Pago eliminado y saldo recalculado' };
 }
 
 function guardarReintegro(ss, r) {
   var refSheet = obtenerOCrearHoja(ss, SCHEMA.REINTEGROS);
   refSheet.appendRow([
-    r.id, r.patientId, r.patientName, r.amount, r.date,
+    r.id, r.patientId, r.patientName, Number(r.amount) || 0, r.date,
     r.reason, r.refundMethod, r.reference || '', r.registeredBy || '',
     r.createdAt || new Date().toISOString()
   ]);
 
-  var patSheet = obtenerOCrearHoja(ss, SCHEMA.PACIENTES);
-  var patValues = patSheet.getDataRange().getValues();
-  for (var i = 1; i < patValues.length; i++) {
-    if (String(patValues[i][0]) === String(r.patientId)) {
-      var totalCost = Number(patValues[i][9]) || 0;
-      var totalPaid = Math.max(0, (Number(patValues[i][10]) || 0) - Number(r.amount));
-      var balance = totalCost - totalPaid;
-      var status = balance <= 0 ? 'paid' : 'pending';
-      patSheet.getRange(i + 1, 11).setValue(totalPaid);
-      patSheet.getRange(i + 1, 12).setValue(balance);
-      patSheet.getRange(i + 1, 14).setValue(status);
-      patSheet.getRange(i + 1, 18).setValue(new Date().toISOString());
-      break;
-    }
-  }
+  recalcularTotalesPacienteEnHoja(ss, r.patientId);
+  SpreadsheetApp.flush();
   return { status: 'ok', message: 'Reintegro registrado' };
 }
 
@@ -1029,7 +1248,27 @@ function sincronizarMasivo(ss, data) {
     var patHeaders = SCHEMA.PACIENTES.headers;
     patSheet.getRange(1, 1, 1, patHeaders.length).setValues([patHeaders]);
     formatearEncabezado(patSheet, patHeaders.length);
-    data.patients.forEach(function(p) { guardarPaciente(ss, p); });
+    var patRows = data.patients.map(function(p) {
+      var totalCost = Number(p.totalCost) || 0;
+      var initialPayment = p.initialPayment !== undefined && p.initialPayment !== null ? Math.max(0, Number(p.initialPayment) || 0) : 0;
+      var totalPaid = Math.max(Number(p.totalPaid) || 0, initialPayment);
+      var balance = Math.max(0, totalCost - totalPaid);
+      var status = balance <= 0 && totalCost > 0 ? 'paid' : (p.status === 'overdue' ? 'overdue' : 'pending');
+      return [
+        p.id, p.fullName, p.phone, p.idNumber, p.email || '', p.city || '', p.campaign || 'Referido',
+        p.procedure, p.doctor || 'Dr. Jorge Apelencia', totalCost, totalPaid,
+        balance, p.registrationDate || new Date().toISOString().split('T')[0], status,
+        p.financingPlanName || '', p.nextPaymentDate || '', p.notes || '',
+        new Date().toISOString(), initialPayment
+      ];
+    });
+    if (patRows.length > 0) {
+      patSheet.getRange(2, 1, patRows.length, patHeaders.length).setValues(patRows);
+    }
+    var lastPatRow = patSheet.getLastRow();
+    if (lastPatRow > 1 + patRows.length) {
+      patSheet.getRange(2 + patRows.length, 1, lastPatRow - (1 + patRows.length), patHeaders.length).clearContent();
+    }
   }
 
   if (data.payments && Array.isArray(data.payments)) {
@@ -1037,13 +1276,20 @@ function sincronizarMasivo(ss, data) {
     var payHeaders = SCHEMA.ABONOS.headers;
     paySheet.getRange(1, 1, 1, payHeaders.length).setValues([payHeaders]);
     formatearEncabezado(paySheet, payHeaders.length);
-    data.payments.forEach(function(p) {
-      paySheet.appendRow([
-        p.id, p.patientId, p.patientName, p.amount, p.date,
+    var payRows = data.payments.map(function(p) {
+      return [
+        p.id, p.patientId, p.patientName, Number(p.amount) || 0, p.date,
         p.paymentMethod, p.reference || '', p.registeredBy || '',
         p.notes || '', p.createdAt || new Date().toISOString()
-      ]);
+      ];
     });
+    if (payRows.length > 0) {
+      paySheet.getRange(2, 1, payRows.length, payHeaders.length).setValues(payRows);
+    }
+    var lastPayRow = paySheet.getLastRow();
+    if (lastPayRow > 1 + payRows.length) {
+      paySheet.getRange(2 + payRows.length, 1, lastPayRow - (1 + payRows.length), payHeaders.length).clearContent();
+    }
   }
 
   if (data.refunds && Array.isArray(data.refunds)) {
@@ -1051,13 +1297,20 @@ function sincronizarMasivo(ss, data) {
     var refHeaders = SCHEMA.REINTEGROS.headers;
     refSheet.getRange(1, 1, 1, refHeaders.length).setValues([refHeaders]);
     formatearEncabezado(refSheet, refHeaders.length);
-    data.refunds.forEach(function(r) {
-      refSheet.appendRow([
-        r.id, r.patientId, r.patientName, r.amount, r.date,
+    var refRows = data.refunds.map(function(r) {
+      return [
+        r.id, r.patientId, r.patientName, Number(r.amount) || 0, r.date,
         r.reason, r.refundMethod, r.reference || '', r.registeredBy || '',
         r.createdAt || new Date().toISOString()
-      ]);
+      ];
     });
+    if (refRows.length > 0) {
+      refSheet.getRange(2, 1, refRows.length, refHeaders.length).setValues(refRows);
+    }
+    var lastRefRow = refSheet.getLastRow();
+    if (lastRefRow > 1 + refRows.length) {
+      refSheet.getRange(2 + refRows.length, 1, lastRefRow - (1 + refRows.length), refHeaders.length).clearContent();
+    }
   }
 
   if (data.users && Array.isArray(data.users)) {
